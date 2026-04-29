@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Seed local HEnEx/ENEX DAM XLSX data into Convex.
+"""Bulk import compact HEnEx/ENEX DAM Results data into Convex.
 
-The ENEX XLSX files in this repo report worksheet dimension A1 even when
-full rows exist, so this script streams the underlying XLSX XML directly
-instead of relying on spreadsheet library dimension metadata.
+This script does not call Convex mutations row-by-row. It parses local Results
+workbooks, writes JSONL import files, then uses `npx convex import --replace`
+for the compact DAM tables.
 """
 
 from __future__ import annotations
@@ -13,10 +13,8 @@ import hashlib
 import json
 import shlex
 import subprocess
-import sys
-import uuid
 import zipfile
-from dataclasses import dataclass
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -26,59 +24,30 @@ from xml.etree import ElementTree
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DAM_ROOT = REPO_ROOT / "data" / "dam"
-MANIFEST_PATH = DAM_ROOT / "manifest.json"
+MANIFEST_PATH = DAM_ROOT / "archive_manifest_results_all.json"
+OUTPUT_DIR = REPO_ROOT / "data" / "processed" / "dam_convex_import"
 ATHENS = ZoneInfo("Europe/Athens")
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
-SUPPORTED_SOURCES = {"Results", "AggrCurves"}
-SOURCE_MUTATIONS = {
-    "Results": "dam:storeDamMarketResultsBatch",
-    "AggrCurves": "dam:storeDamAggregatedCurvesBatch",
-}
+SOURCE = "henex-dam"
+TIMEZONE = "Europe/Athens"
 
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-@dataclass(frozen=True)
-class ParsedFile:
-    file_record: dict[str, Any]
-    rows: list[dict[str, Any]]
-    source_code: str
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Seed local ENEX DAM XLSX files into Convex.")
-    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH, help="Path to data/dam/manifest.json.")
+    parser = argparse.ArgumentParser(description="Bulk import compact ENEX DAM Results data into Convex.")
+    parser.add_argument("--manifest", type=Path, default=MANIFEST_PATH)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
     parser.add_argument("--from", dest="from_date", help="Inclusive market date filter, YYYY-MM-DD.")
     parser.add_argument("--to", dest="to_date", help="Inclusive market date filter, YYYY-MM-DD.")
-    parser.add_argument(
-        "--sources",
-        default="Results,AggrCurves",
-        help="Comma-separated source codes to seed. Phase 1 supports Results,AggrCurves.",
-    )
-    parser.add_argument("--batch-size", type=int, default=100, help="Rows per Convex mutation call.")
-    parser.add_argument("--file-batch-size", type=int, default=100, help="File records per Convex mutation call.")
-    parser.add_argument("--summary-batch-size", type=int, default=25, help="Market dates per summary recompute mutation call.")
-    parser.add_argument("--limit-files", type=int, help="Stop after N matching files, useful for smoke tests.")
-    parser.add_argument("--dry-run", action="store_true", help="Parse and summarize without calling Convex.")
-    parser.add_argument("--push", action="store_true", help="Push Convex code before the first Convex run call.")
-    parser.add_argument("--prod", action="store_true", help="Pass --prod to convex run.")
-    parser.add_argument("--deployment", help="Pass --deployment to convex run, e.g. first-axolotl-94.")
-    parser.add_argument(
-        "--convex-command",
-        default="npx convex",
-        help="Command prefix used to invoke Convex CLI, for example 'npx convex'.",
-    )
-    parser.add_argument("--quiet", action="store_true", help="Reduce per-file progress output.")
-    args = parser.parse_args()
-    if args.batch_size < 1 or args.batch_size > 500:
-        parser.error("--batch-size must be between 1 and 500")
-    if args.file_batch_size < 1 or args.file_batch_size > 500:
-        parser.error("--file-batch-size must be between 1 and 500")
-    if args.summary_batch_size < 1 or args.summary_batch_size > 50:
-        parser.error("--summary-batch-size must be between 1 and 50")
-    return args
+    parser.add_argument("--deployment", help="Convex deployment name, e.g. first-axolotl-94.")
+    parser.add_argument("--prod", action="store_true", help="Import into this project's default production deployment.")
+    parser.add_argument("--dry-run", action="store_true", help="Write import files and summary without calling Convex import.")
+    parser.add_argument("--convex-command", default="npx convex")
+    parser.add_argument("--limit-files", type=int)
+    return parser.parse_args()
 
 
 def require_date_key(value: str | None, name: str) -> str | None:
@@ -91,35 +60,6 @@ def require_date_key(value: str | None, name: str) -> str | None:
     return value
 
 
-def source_list(raw: str) -> set[str]:
-    sources = {item.strip() for item in raw.split(",") if item.strip()}
-    unsupported = sources - SUPPORTED_SOURCES
-    if unsupported:
-        raise SystemExit(f"Unsupported phase 1 source(s): {', '.join(sorted(unsupported))}")
-    return sources
-
-
-def load_manifest(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise SystemExit(f"Manifest not found: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def selected_assets(manifest: dict[str, Any], sources: set[str], from_date: str | None, to_date: str | None) -> list[dict[str, Any]]:
-    assets = []
-    for asset in manifest.get("assets", []):
-        source_code = asset.get("source_code")
-        market_date = normalize_market_date(asset.get("market_date"))
-        if source_code not in sources:
-            continue
-        if from_date and market_date < from_date:
-            continue
-        if to_date and market_date > to_date:
-            continue
-        assets.append(asset)
-    return sorted(assets, key=lambda item: (normalize_market_date(item.get("market_date")), item.get("source_code", "")))
-
-
 def normalize_market_date(value: Any) -> str:
     text = str(value)
     if len(text) == 8 and text.isdigit():
@@ -129,16 +69,33 @@ def normalize_market_date(value: Any) -> str:
     raise ValueError(f"Unsupported market date: {value!r}")
 
 
+def load_manifest(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise SystemExit(f"Manifest not found: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def selected_results_assets(manifest: dict[str, Any], from_date: str | None, to_date: str | None) -> list[dict[str, Any]]:
+    assets = []
+    for asset in manifest.get("assets", []):
+        if asset.get("source_code") != "Results":
+            continue
+        market_date = normalize_market_date(asset.get("market_date"))
+        if from_date and market_date < from_date:
+            continue
+        if to_date and market_date > to_date:
+            continue
+        assets.append(asset)
+    return sorted(assets, key=lambda item: normalize_market_date(item.get("market_date")))
+
+
 def read_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     try:
         payload = archive.read("xl/sharedStrings.xml")
     except KeyError:
         return []
     root = ElementTree.fromstring(payload)
-    strings: list[str] = []
-    for item in root.findall(f"{NS}si"):
-        strings.append("".join(text.text or "" for text in item.iter(f"{NS}t")))
-    return strings
+    return ["".join(text.text or "" for text in item.iter(f"{NS}t")) for item in root.findall(f"{NS}si")]
 
 
 def first_sheet_path(archive: zipfile.ZipFile) -> str:
@@ -270,73 +227,73 @@ def stable_hash(parts: dict[str, Any]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def normalize_result_row(asset: dict[str, Any], sheet_name: str | None, row_number: int, headers: list[str], values: list[Any]) -> dict[str, Any]:
-    row = raw_row(headers, values)
-    source_file = asset["filename"]
-    market_date = normalize_market_date(row.get("DDAY") or asset["market_date"])
-    normalized = {
-        "marketDate": market_date,
-        "timestamp": parse_local_timestamp(row.get("DELIVERY_MTU")) or f"{market_date}T00:00:00",
-        "mtu": int_value(row.get("SORT")) or row_number - 1,
-        "target": string_value(row.get("TARGET")) or "DAM",
-        "sourceCode": "Results",
-        "sourceFile": source_file,
-        "biddingZone": string_value(row.get("BIDDING_ZONE_DESCR")),
-        "side": string_value(row.get("SIDE_DESCR")),
-        "asset": string_value(row.get("ASSET_DESCR")),
-        "classification": string_value(row.get("CLASSIFICATION")),
-        "deliveryDurationMinutes": number_value(row.get("DELIVERY_DURATION")),
-        "mcpEurPerMwh": number_value(row.get("MCP")),
-        "totalTrades": number_value(row.get("TOTAL_TRADES")),
-        "pubTime": parse_local_timestamp(row.get("PUB_TIME")),
-        "version": number_value(row.get("VER")),
-        "sheetName": sheet_name,
-    }
-    normalized["rowHash"] = stable_hash({"sourceFile": source_file, "rowNumber": row_number, "row": row})
-    return {key: value for key, value in normalized.items() if value is not None}
-
-
-def normalize_curve_row(asset: dict[str, Any], sheet_name: str | None, row_number: int, headers: list[str], values: list[Any]) -> dict[str, Any]:
-    row = raw_row(headers, values)
-    source_file = asset["filename"]
-    market_date = normalize_market_date(row.get("DDAY") or asset["market_date"])
-    normalized = {
-        "marketDate": market_date,
-        "timestamp": parse_local_timestamp(row.get("DELIVERY_MTU")) or f"{market_date}T00:00:00",
-        "mtu": int_value(row.get("SORT")) or row_number - 1,
-        "target": string_value(row.get("TARGET")) or "DAM",
-        "sourceCode": "AggrCurves",
-        "sourceFile": source_file,
-        "side": string_value(row.get("SIDE_DESCR")),
-        "deliveryDurationMinutes": number_value(row.get("DELIVERY_DURATION")),
-        "pointOrder": number_value(row.get("AA")),
-        "quantity": number_value(row.get("QUANTITY")),
-        "unitPriceEurPerMwh": number_value(row.get("UNITPRICE")),
-        "pubTime": parse_local_timestamp(row.get("PUB_TIME")),
-        "version": number_value(row.get("VER")),
-        "sheetName": sheet_name,
-    }
-    normalized["rowHash"] = stable_hash({"sourceFile": source_file, "rowNumber": row_number, "row": row})
-    return {key: value for key, value in normalized.items() if value is not None}
-
-
-def parse_file(asset: dict[str, Any]) -> ParsedFile:
+def compact_interval_rows(asset: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     path = REPO_ROOT / asset["output_path"]
     if not path.exists():
         raise FileNotFoundError(path)
-    source_code = asset["source_code"]
+
     sheet_name, rows_iter = iter_xlsx_rows(path)
     iterator = iter(rows_iter)
     headers = [str(value).strip() if value is not None else "" for value in next(iterator)]
-    parsed_rows = []
-    normalizer = normalize_result_row if source_code == "Results" else normalize_curve_row
-    for row_number, values in enumerate(iterator, start=2):
+    grouped: dict[str, dict[str, Any]] = {}
+
+    for values in iterator:
         if not any(value is not None for value in values):
             continue
-        parsed_rows.append(normalizer(asset, sheet_name, row_number, headers, values))
-    parsed_at = utc_now_iso()
+        row = raw_row(headers, values)
+        market_date = normalize_market_date(row.get("DDAY") or asset["market_date"])
+        timestamp = parse_local_timestamp(row.get("DELIVERY_MTU")) or f"{market_date}T00:00:00"
+        mtu = int_value(row.get("SORT"))
+        bidding_zone = string_value(row.get("BIDDING_ZONE_DESCR"))
+        key = "|".join([market_date, timestamp, str(mtu), bidding_zone or ""])
+        interval = grouped.get(key)
+        if interval is None:
+            interval = {
+                "marketDate": market_date,
+                "timestamp": timestamp,
+                "mtu": mtu or 0,
+                "target": string_value(row.get("TARGET")) or "DAM",
+                "sourceCode": "Results",
+                "sourceFile": asset["filename"],
+                "biddingZone": bidding_zone,
+                "deliveryDurationMinutes": number_value(row.get("DELIVERY_DURATION")),
+                "mcpEurPerMwh": number_value(row.get("MCP")),
+                "buyVolumeMw": 0.0,
+                "sellVolumeMw": 0.0,
+                "totalVolumeMw": 0.0,
+                "pubTime": parse_local_timestamp(row.get("PUB_TIME")),
+                "version": number_value(row.get("VER")),
+                "sheetName": sheet_name,
+            }
+            grouped[key] = interval
+
+        volume = number_value(row.get("TOTAL_TRADES")) or 0.0
+        if string_value(row.get("SIDE_DESCR")) == "Buy":
+            interval["buyVolumeMw"] += volume
+        elif string_value(row.get("SIDE_DESCR")) == "Sell":
+            interval["sellVolumeMw"] += volume
+        if interval.get("mcpEurPerMwh") is None:
+            interval["mcpEurPerMwh"] = number_value(row.get("MCP"))
+
+    intervals = []
+    for interval in grouped.values():
+        interval["buyVolumeMw"] = round(interval["buyVolumeMw"], 6)
+        interval["sellVolumeMw"] = round(interval["sellVolumeMw"], 6)
+        interval["totalVolumeMw"] = round(interval["buyVolumeMw"] + interval["sellVolumeMw"], 6)
+        interval["rowHash"] = stable_hash(
+            {
+                "sourceFile": interval["sourceFile"],
+                "marketDate": interval["marketDate"],
+                "timestamp": interval["timestamp"],
+                "mtu": interval["mtu"],
+                "biddingZone": interval.get("biddingZone"),
+                "version": interval.get("version"),
+            }
+        )
+        intervals.append({key: value for key, value in interval.items() if value is not None})
+
     file_record = {
-        "sourceCode": source_code,
+        "sourceCode": "Results",
         "sourceTitle": asset["source_title"],
         "marketDate": normalize_market_date(asset["market_date"]),
         "filename": asset["filename"],
@@ -345,134 +302,166 @@ def parse_file(asset: dict[str, Any]) -> ParsedFile:
         "localPath": asset["output_path"],
         "bytes": int(asset["bytes"]),
         "sha256": asset["sha256"],
-        "parsedAtUtc": parsed_at,
-        "rowCount": len(parsed_rows),
+        "parsedAtUtc": utc_now_iso(),
+        "rowCount": len(intervals),
         "status": "parsed",
     }
-    return ParsedFile(file_record=file_record, rows=parsed_rows, source_code=source_code)
+    return file_record, sorted(intervals, key=lambda row: (row["marketDate"], row["mtu"], row.get("biddingZone", "")))
 
 
-def chunks(rows: list[dict[str, Any]], size: int) -> Iterable[list[dict[str, Any]]]:
-    for index in range(0, len(rows), size):
-        yield rows[index : index + size]
+def summarize_prices(price_series: list[dict[str, Any]]) -> dict[str, float] | None:
+    prices = [row["mcpEurPerMwh"] for row in price_series if isinstance(row.get("mcpEurPerMwh"), (int, float))]
+    if not prices:
+        return None
+    average = sum(prices) / len(prices)
+    variance = sum((price - average) ** 2 for price in prices) / len(prices)
+    return {
+        "minPrice": round(min(prices), 3),
+        "maxPrice": round(max(prices), 3),
+        "averagePrice": round(average, 3),
+        "dailySpread": round(max(prices) - min(prices), 3),
+        "volatility": round(variance**0.5, 3),
+    }
 
 
-def convex_run(args: argparse.Namespace, function_name: str, payload: dict[str, Any]) -> dict[str, Any]:
-    command = shlex.split(args.convex_command) + ["run"]
-    use_push = bool(args.push and not getattr(args, "_convex_pushed", False))
-    if use_push:
-        command.append("--push")
+def coverage_for_files(files: list[dict[str, Any]]) -> dict[str, Any]:
+    dates = sorted({file["marketDate"] for file in files})
+    return {
+        "marketDates": len(dates),
+        "firstDate": dates[0] if dates else None,
+        "lastDate": dates[-1] if dates else None,
+        "sources": {
+            "Results": {
+                "files": len(files),
+                "firstDate": dates[0] if dates else None,
+                "lastDate": dates[-1] if dates else None,
+                "rows": sum(file["rowCount"] for file in files),
+            }
+        },
+    }
+
+
+def daily_summaries(files: list[dict[str, Any]], intervals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    files_by_date: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    intervals_by_date: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for file in files:
+        files_by_date[file["marketDate"]].append(file)
+    for interval in intervals:
+        intervals_by_date[interval["marketDate"]].append(interval)
+
+    summaries = []
+    for market_date in sorted(intervals_by_date):
+        price_series = [
+            {
+                "marketDate": row["marketDate"],
+                "timestamp": row["timestamp"],
+                "mtu": row["mtu"],
+                "mcpEurPerMwh": row.get("mcpEurPerMwh"),
+                "buyVolume": row["buyVolumeMw"],
+                "sellVolume": row["sellVolumeMw"],
+                "totalTrades": row["totalVolumeMw"],
+                "sourceRowCount": 1,
+            }
+            for row in sorted(intervals_by_date[market_date], key=lambda item: (item["timestamp"], item["mtu"]))
+        ]
+        summaries.append(
+            {
+                "marketDate": market_date,
+                "generatedAtUtc": utc_now_iso(),
+                "source": SOURCE,
+                "timezone": TIMEZONE,
+                "coverage": coverage_for_files(files_by_date.get(market_date, [])),
+                "priceSeries": price_series,
+                "spreadSummary": summarize_prices(price_series),
+                "volumeSeries": [
+                    {
+                        "marketDate": point["marketDate"],
+                        "timestamp": point["timestamp"],
+                        "mtu": point["mtu"],
+                        "buyVolume": point["buyVolume"],
+                        "sellVolume": point["sellVolume"],
+                        "totalTrades": point["totalTrades"],
+                    }
+                    for point in price_series
+                ],
+                "curveFragility": [],
+                "fileCount": len(files_by_date.get(market_date, [])),
+                "marketRowCount": len(price_series),
+                "curveRowCount": 0,
+            }
+        )
+    return summaries
+
+
+def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, separators=(",", ":"), ensure_ascii=False))
+            handle.write("\n")
+
+
+def convex_import(args: argparse.Namespace, table: str, path: Path) -> None:
+    command = shlex.split(args.convex_command) + [
+        "import",
+        "--table",
+        table,
+        "--replace",
+        "--yes",
+        "--format",
+        "jsonLines",
+    ]
     if args.prod:
         command.append("--prod")
     if args.deployment:
         command.extend(["--deployment", args.deployment])
-    command.extend([function_name, json.dumps(payload, separators=(",", ":"), ensure_ascii=False)])
+    command.append(str(path))
     result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(
-            f"Convex command failed for {function_name}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    if use_push:
-        setattr(args, "_convex_pushed", True)
-    text = result.stdout.strip()
-    if not text:
-        return {}
-    json_start = text.rfind("\n{")
-    candidate = text[json_start + 1 :] if json_start != -1 else text
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        return {"stdout": text}
-
-
-def empty_run_record(run_id: str, args: argparse.Namespace, status: str) -> dict[str, Any]:
-    record = {
-        "runId": run_id,
-        "startedAtUtc": utc_now_iso(),
-        "sources": sorted(source_list(args.sources)),
-        "dryRun": bool(args.dry_run),
-        "status": status,
-        "filesParsed": 0,
-        "filesInserted": 0,
-        "filesSkipped": 0,
-        "rowsParsed": 0,
-        "rowsInserted": 0,
-        "rowsSkipped": 0,
-        "failedFiles": 0,
-        "errors": [],
-    }
-    if args.from_date is not None:
-        record["fromDate"] = args.from_date
-    if args.to_date is not None:
-        record["toDate"] = args.to_date
-    return record
+        raise RuntimeError(f"Convex import failed for {table}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
+    print(result.stdout.strip())
 
 
 def main() -> int:
     args = parse_args()
     args.from_date = require_date_key(args.from_date, "--from")
     args.to_date = require_date_key(args.to_date, "--to")
-    sources = source_list(args.sources)
     manifest = load_manifest(args.manifest)
-    assets = selected_assets(manifest, sources, args.from_date, args.to_date)
+    assets = selected_results_assets(manifest, args.from_date, args.to_date)
     if args.limit_files is not None:
         assets = assets[: args.limit_files]
-    run_id = f"dam-seed-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
-    run = empty_run_record(run_id, args, "running")
-    touched_dates: set[str] = set()
-    pending_files: list[dict[str, Any]] = []
 
-    if not args.dry_run:
-        convex_run(args, "dam:recordDamIngestRun", run)
-
+    files: list[dict[str, Any]] = []
+    intervals: list[dict[str, Any]] = []
     for asset in assets:
-        try:
-            parsed = parse_file(asset)
-        except Exception as exc:  # noqa: BLE001 - CLI should continue and report failed files.
-            run["failedFiles"] += 1
-            run["errors"].append({"file": asset.get("filename"), "error": str(exc)})
-            print(f"failed {asset.get('filename')}: {exc}", file=sys.stderr)
-            continue
+        file_record, rows = compact_interval_rows(asset)
+        files.append(file_record)
+        intervals.extend(rows)
 
-        run["filesParsed"] += 1
-        run["rowsParsed"] += len(parsed.rows)
-        touched_dates.add(parsed.file_record["marketDate"])
-        if not args.quiet:
-            print(f"parsed {parsed.file_record['filename']}: {len(parsed.rows)} rows")
+    summaries = daily_summaries(files, intervals)
+    files_path = args.output_dir / "damFiles.jsonl"
+    intervals_path = args.output_dir / "damPriceIntervals.jsonl"
+    summaries_path = args.output_dir / "damDailySummaries.jsonl"
+    write_jsonl(files_path, files)
+    write_jsonl(intervals_path, intervals)
+    write_jsonl(summaries_path, summaries)
 
-        if args.dry_run:
-            continue
-
-        pending_files.append(parsed.file_record)
-        if len(pending_files) >= args.file_batch_size:
-            file_result = convex_run(args, "dam:storeDamFileBatch", {"files": pending_files})
-            run["filesInserted"] += int(file_result.get("inserted", 0))
-            run["filesSkipped"] += int(file_result.get("skipped", 0))
-            pending_files = []
-
-        mutation = SOURCE_MUTATIONS[parsed.source_code]
-        for batch in chunks(parsed.rows, args.batch_size):
-            result = convex_run(args, mutation, {"rows": batch})
-            run["rowsInserted"] += int(result.get("inserted", 0))
-            run["rowsSkipped"] += int(result.get("skipped", 0))
-
-    if not args.dry_run and pending_files:
-        file_result = convex_run(args, "dam:storeDamFileBatch", {"files": pending_files})
-        run["filesInserted"] += int(file_result.get("inserted", 0))
-        run["filesSkipped"] += int(file_result.get("skipped", 0))
+    summary = {
+        "files": len(files),
+        "intervals": len(intervals),
+        "summaries": len(summaries),
+        "fromDate": files[0]["marketDate"] if files else None,
+        "toDate": files[-1]["marketDate"] if files else None,
+        "outputDir": str(args.output_dir),
+        "dryRun": args.dry_run,
+    }
+    print(json.dumps(summary, indent=2, sort_keys=True))
 
     if not args.dry_run:
-        for batch in chunks([{"marketDate": market_date} for market_date in sorted(touched_dates)], args.summary_batch_size):
-            convex_run(args, "dam:recomputeDamDailySummaries", {"marketDates": [item["marketDate"] for item in batch]})
-
-    run["completedAtUtc"] = utc_now_iso()
-    run["status"] = "completed" if run["failedFiles"] == 0 else "completed_with_errors"
-
-    if not args.dry_run:
-        convex_run(args, "dam:recordDamIngestRun", run)
-
-    print(json.dumps(run, indent=2, sort_keys=True))
-    return 0 if run["failedFiles"] == 0 else 1
+        convex_import(args, "damFiles", files_path)
+        convex_import(args, "damPriceIntervals", intervals_path)
+        convex_import(args, "damDailySummaries", summaries_path)
+    return 0
 
 
 if __name__ == "__main__":

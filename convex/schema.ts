@@ -175,27 +175,6 @@ export default defineSchema({
     .index("by_createdAt", ["createdAtUtc"])
     .index("by_marketDate", ["marketDate"]),
 
-  damIngestRuns: defineTable({
-    runId: v.string(),
-    startedAtUtc: v.string(),
-    completedAtUtc: v.optional(v.string()),
-    sources: v.array(v.string()),
-    fromDate: v.optional(v.string()),
-    toDate: v.optional(v.string()),
-    dryRun: v.boolean(),
-    status: v.string(),
-    filesParsed: v.number(),
-    filesInserted: v.number(),
-    filesSkipped: v.number(),
-    rowsParsed: v.number(),
-    rowsInserted: v.number(),
-    rowsSkipped: v.number(),
-    failedFiles: v.number(),
-    errors: v.any(),
-  })
-    .index("by_runId", ["runId"])
-    .index("by_startedAt", ["startedAtUtc"]),
-
   damFiles: defineTable({
     sourceCode: v.string(),
     sourceTitle: v.string(),
@@ -216,7 +195,7 @@ export default defineSchema({
     .index("by_sha256", ["sha256"])
     .index("by_filename", ["filename"]),
 
-  damMarketResults: defineTable({
+  damPriceIntervals: defineTable({
     marketDate: v.string(),
     timestamp: v.string(),
     mtu: v.number(),
@@ -224,57 +203,20 @@ export default defineSchema({
     sourceCode: v.string(),
     sourceFile: v.string(),
     biddingZone: v.optional(v.string()),
-    side: v.optional(v.string()),
-    asset: v.optional(v.string()),
-    classification: v.optional(v.string()),
     deliveryDurationMinutes: v.optional(v.number()),
     mcpEurPerMwh: v.optional(v.number()),
-    totalTrades: v.optional(v.number()),
+    buyVolumeMw: v.number(),
+    sellVolumeMw: v.number(),
+    totalVolumeMw: v.number(),
     pubTime: v.optional(v.string()),
     version: v.optional(v.number()),
     sheetName: v.optional(v.string()),
     rowHash: v.string(),
-    row: v.optional(v.any()),
   })
     .index("by_date_mtu", ["marketDate", "mtu"])
     .index("by_date", ["marketDate"])
     .index("by_file", ["sourceFile"])
-    .index("by_row_hash", ["rowHash"])
-    .index("by_date_side", ["marketDate", "side"]),
-
-  damAggregatedCurves: defineTable({
-    marketDate: v.string(),
-    timestamp: v.string(),
-    mtu: v.number(),
-    target: v.string(),
-    sourceCode: v.string(),
-    sourceFile: v.string(),
-    side: v.optional(v.string()),
-    deliveryDurationMinutes: v.optional(v.number()),
-    pointOrder: v.optional(v.number()),
-    quantity: v.optional(v.number()),
-    unitPriceEurPerMwh: v.optional(v.number()),
-    pubTime: v.optional(v.string()),
-    version: v.optional(v.number()),
-    sheetName: v.optional(v.string()),
-    rowHash: v.string(),
-    row: v.optional(v.any()),
-  })
-    .index("by_date_mtu", ["marketDate", "mtu"])
-    .index("by_date", ["marketDate"])
-    .index("by_file", ["sourceFile"])
-    .index("by_row_hash", ["rowHash"])
-    .index("by_date_side", ["marketDate", "side"]),
-
-  damRawRows: defineTable({
-    rowHash: v.string(),
-    sourceCode: v.string(),
-    sourceFile: v.string(),
-    marketDate: v.string(),
-    row: v.any(),
-  })
-    .index("by_row_hash", ["rowHash"])
-    .index("by_date", ["marketDate"]),
+    .index("by_row_hash", ["rowHash"]),
 
   damDailySummaries: defineTable({
     marketDate: v.string(),
