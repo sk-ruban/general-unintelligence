@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { buildDispatchSchedule, defaultBatteryTwin, summarizeDispatch } from "@/lib/battery-dispatch";
 import { loadExternalSignals } from "@/lib/convex-signals";
+import { getCurveDataClient } from "@/lib/curve-data/client";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import { getMarketDataClient } from "@/lib/market-data/client";
 import type {
@@ -34,14 +35,29 @@ const nav: { id: View; label: string; icon: React.ComponentType<{ className?: st
   { id: "health", label: "Data Health", icon: Database },
 ];
 
+type CurveStats = {
+  totalPoints: number;
+  buyPoints: number;
+  sellPoints: number;
+  buyMwh: number | null;
+  sellMwh: number | null;
+  lowPrice: number | null;
+  highPrice: number | null;
+  lowQuantity: number | null;
+  highQuantity: number | null;
+};
+
 export function CockpitClient() {
   const [view, setView] = useState<View>("control");
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState<string[]>([]);
+  const [curveDays, setCurveDays] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState("");
+  const [selectedMtu, setSelectedMtu] = useState(1);
   const [prices, setPrices] = useState<DamPricePoint[]>([]);
   const [curves, setCurves] = useState<AggregatedCurvePoint[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
+  const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
   const [signals, setSignals] = useState<ExternalSignalPanel[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [twin, setTwin] = useState<BatteryTwinConfig>(defaultBatteryTwin);
@@ -50,23 +66,22 @@ export function CockpitClient() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const client = await getMarketDataClient();
-      const [healthResult, marketDays, signalResult] = await Promise.all([
-        client.getDataHealth(),
-        client.getAvailableMarketDays(),
-        loadExternalSignals(),
-      ]);
-      const latestDay = marketDays.at(-1) ?? "";
-      const [priceSeries, curveSlice] = await Promise.all([
-        client.getDamPriceSeries({ from: latestDay, to: latestDay }),
-        client.getCurveSlice(latestDay, 1),
-      ]);
+      const [marketClient, curveClient] = await Promise.all([getMarketDataClient(), getCurveDataClient()]);
+      const [healthResult, curveHealthResult, marketDays, availableCurveDays, signalResult] =
+        await Promise.all([
+          marketClient.getDataHealth(),
+          curveClient.getCurveHealth(),
+          marketClient.getAvailableMarketDays(),
+          curveClient.getAvailableCurveDays(),
+          loadExternalSignals(),
+        ]);
+      const latestDay = marketDays.at(-1) ?? availableCurveDays.at(-1) ?? "";
       if (!cancelled) {
         setHealth(healthResult);
+        setCurveHealth(curveHealthResult);
         setDays(marketDays);
+        setCurveDays(availableCurveDays);
         setSelectedDay(latestDay);
-        setPrices(priceSeries);
-        setCurves(curveSlice);
         setSignals(signalResult.panels);
         setLoading(false);
       }
@@ -85,13 +100,9 @@ export function CockpitClient() {
     let cancelled = false;
     async function loadDay() {
       const client = await getMarketDataClient();
-      const [priceSeries, curveSlice] = await Promise.all([
-        client.getDamPriceSeries({ from: selectedDay, to: selectedDay }),
-        client.getCurveSlice(selectedDay, 1),
-      ]);
+      const priceSeries = await client.getDamPriceSeries({ from: selectedDay, to: selectedDay });
       if (!cancelled) {
         setPrices(priceSeries);
-        setCurves(curveSlice);
       }
     }
     loadDay().catch(console.error);
@@ -99,6 +110,22 @@ export function CockpitClient() {
       cancelled = true;
     };
   }, [selectedDay]);
+
+  useEffect(() => {
+    if (!selectedDay) return;
+    let cancelled = false;
+    async function loadCurveSlice() {
+      const client = await getCurveDataClient();
+      const curveSlice = await client.getCurveSlice(selectedDay, selectedMtu);
+      if (!cancelled) {
+        setCurves(curveSlice);
+      }
+    }
+    loadCurveSlice().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, selectedMtu]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -117,6 +144,8 @@ export function CockpitClient() {
   const priceValues = prices.map((point) => point.mcpEurPerMwh);
   const lowPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
   const highPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
+  const curveStats = useMemo(() => summarizeCurves(curves), [curves]);
+  const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);
 
   return (
     <main className="h-screen overflow-hidden bg-[#050506] text-zinc-100">
@@ -165,6 +194,8 @@ export function CockpitClient() {
                   <ControlRoom
                     prices={prices}
                     curves={curves}
+                    curveStats={curveStats}
+                    selectedMtu={selectedMtu}
                     dispatch={dispatch}
                     summary={summary}
                     latestPrice={latestPrice}
@@ -174,10 +205,27 @@ export function CockpitClient() {
                     loading={loading}
                   />
                 ) : null}
-                {view === "curves" ? <MarketCurves curves={curves} selectedDay={selectedDay} /> : null}
+                {view === "curves" ? (
+                  <MarketCurves
+                    curves={curves}
+                    curveStats={curveStats}
+                    selectedDay={selectedDay}
+                    selectedMtu={selectedMtu}
+                    onMtuChange={setSelectedMtu}
+                    hasCurveDay={curveDaySet.has(selectedDay)}
+                  />
+                ) : null}
                 {view === "twin" ? <BatteryTwin twin={twin} setTwin={setTwin} summary={summary} /> : null}
                 {view === "scenarios" ? <Scenarios dispatch={dispatch} /> : null}
-                {view === "health" ? <DataHealthView health={health} signals={signals} days={days} /> : null}
+                {view === "health" ? (
+                  <DataHealthView
+                    health={health}
+                    curveHealth={curveHealth}
+                    signals={signals}
+                    days={days}
+                    curveDays={curveDays}
+                  />
+                ) : null}
               </div>
             </ResizePanel>
             <PanelResizeHandle className="w-1 bg-white/10 transition hover:bg-cyan-300/50" />
@@ -237,6 +285,8 @@ function TopBar({
 function ControlRoom({
   prices,
   curves,
+  curveStats,
+  selectedMtu,
   dispatch,
   summary,
   latestPrice,
@@ -247,6 +297,8 @@ function ControlRoom({
 }: {
   prices: DamPricePoint[];
   curves: AggregatedCurvePoint[];
+  curveStats: CurveStats;
+  selectedMtu: number;
   dispatch: DispatchPoint[];
   summary: ReturnType<typeof summarizeDispatch>;
   latestPrice: number | null;
@@ -280,11 +332,14 @@ function ControlRoom({
           <PriceChart data={prices} />
         </Panel>
         <Panel>
-          <PanelHeader title="MTU 01 Curve Depth" kicker={`${curves.length} curve points`} />
+          <PanelHeader
+            title={`MTU ${String(selectedMtu).padStart(2, "0")} Curve Depth`}
+            kicker={`${curveStats.totalPoints} curve points`}
+          />
           {curves.length > 0 ? (
             <CurveChart data={curves} />
           ) : (
-            <EmptyCurveState selectedDay={prices[0]?.interval.marketDate ?? ""} />
+            <EmptyCurveState selectedDay={prices[0]?.interval.marketDate ?? ""} selectedMtu={selectedMtu} />
           )}
         </Panel>
       </div>
@@ -301,15 +356,59 @@ function ControlRoom({
   );
 }
 
-function MarketCurves({ curves, selectedDay }: { curves: AggregatedCurvePoint[]; selectedDay: string }) {
+function MarketCurves({
+  curves,
+  curveStats,
+  selectedDay,
+  selectedMtu,
+  onMtuChange,
+  hasCurveDay,
+}: {
+  curves: AggregatedCurvePoint[];
+  curveStats: CurveStats;
+  selectedDay: string;
+  selectedMtu: number;
+  onMtuChange: (mtu: number) => void;
+  hasCurveDay: boolean;
+}) {
   return (
     <div className="grid gap-3">
       <Panel>
-        <PanelHeader title="Aggregated Buy / Sell Curves" kicker={`${selectedDay} · MTU 01`} />
-        {curves.length > 0 ? <CurveChart data={curves} /> : <EmptyCurveState selectedDay={selectedDay} />}
+        <PanelHeader
+          title="Aggregated Buy / Sell Curves"
+          kicker={`${selectedDay} · MTU ${String(selectedMtu).padStart(2, "0")}`}
+          right={<MtuControl selectedMtu={selectedMtu} onMtuChange={onMtuChange} />}
+        />
+        {curves.length > 0 ? (
+          <CurveChart data={curves} />
+        ) : (
+          <EmptyCurveState selectedDay={selectedDay} selectedMtu={selectedMtu} hasCurveDay={hasCurveDay} />
+        )}
       </Panel>
+      <div className="grid gap-2 md:grid-cols-4">
+        <Metric
+          label="Curve points"
+          value={String(curveStats.totalPoints)}
+          detail={`${curveStats.buyPoints} buy · ${curveStats.sellPoints} sell`}
+        />
+        <Metric
+          label="Bid / offer volume"
+          value={`${formatMwh(curveStats.buyMwh)} · ${formatMwh(curveStats.sellMwh)}`}
+          detail="Displayed MTU"
+        />
+        <Metric
+          label="Price range"
+          value={`${formatEurPerMwh(curveStats.lowPrice)} · ${formatEurPerMwh(curveStats.highPrice)}`}
+          detail="Curve stack"
+        />
+        <Metric
+          label="Quantity range"
+          value={`${formatMwh(curveStats.lowQuantity)} · ${formatMwh(curveStats.highQuantity)}`}
+          detail="Per submitted point"
+        />
+      </div>
       <Panel>
-        <PanelHeader title="Curve Points" kicker="Sampled from static Parquet/JSON layer" />
+        <PanelHeader title="Curve Points" kicker="Recent AggrCurves static layer" />
         <div className="dense-scrollbar max-h-[460px] overflow-auto">
           <table className="w-full table-fixed text-left text-[11px]">
             <thead className="sticky top-0 bg-zinc-950 text-zinc-500 uppercase">
@@ -337,11 +436,46 @@ function MarketCurves({ curves, selectedDay }: { curves: AggregatedCurvePoint[];
   );
 }
 
-function EmptyCurveState({ selectedDay }: { selectedDay: string }) {
+function MtuControl({
+  selectedMtu,
+  onMtuChange,
+}: {
+  selectedMtu: number;
+  onMtuChange: (mtu: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+      <span className="uppercase">MTU</span>
+      <Input
+        className="h-7 w-16 px-2 text-center font-mono text-[12px]"
+        max={100}
+        min={1}
+        type="number"
+        value={selectedMtu}
+        onChange={(event) => {
+          const next = Math.max(1, Math.min(100, Number(event.target.value) || 1));
+          onMtuChange(next);
+        }}
+      />
+    </div>
+  );
+}
+
+function EmptyCurveState({
+  selectedDay,
+  selectedMtu,
+  hasCurveDay = false,
+}: {
+  selectedDay: string;
+  selectedMtu?: number;
+  hasCurveDay?: boolean;
+}) {
+  const mtuLabel = selectedMtu ? ` MTU ${String(selectedMtu).padStart(2, "0")}` : "";
   return (
     <div className="flex h-[290px] items-center justify-center px-6 text-center text-[12px] text-zinc-500">
-      AggrCurves are loaded for the recent modelling window only. {selectedDay || "This day"} has price
-      history, but no local curve slice.
+      {hasCurveDay
+        ? `No local AggrCurve points for ${selectedDay}${mtuLabel}.`
+        : `AggrCurves are loaded for the recent modelling window only. ${selectedDay || "This day"} has price history, but no local curve day.`}
     </div>
   );
 }
@@ -427,12 +561,16 @@ function Scenarios({ dispatch }: { dispatch: DispatchPoint[] }) {
 
 function DataHealthView({
   health,
+  curveHealth,
   signals,
   days,
+  curveDays,
 }: {
   health: DataHealth | null;
+  curveHealth: DataHealth | null;
   signals: ExternalSignalPanel[];
   days: string[];
+  curveDays: string[];
 }) {
   return (
     <div className="grid gap-3">
@@ -445,7 +583,11 @@ function DataHealthView({
             value={String(health?.priceRows ?? 0)}
             detail={`${days.length} market days`}
           />
-          <Metric label="Curve rows" value={String(health?.curveRows ?? 0)} detail="Recent curve window" />
+          <Metric
+            label="Curve rows"
+            value={String(curveHealth?.curveRows ?? health?.curveRows ?? 0)}
+            detail={`${curveDays.length} curve days`}
+          />
           <Metric
             label="Coverage"
             value={`${health?.firstMarketDate ?? "n/a"} → ${health?.lastMarketDate ?? "n/a"}`}
@@ -513,6 +655,33 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
       <div className="mt-1 truncate text-[11px] text-zinc-500">{detail}</div>
     </Panel>
   );
+}
+
+function summarizeCurves(curves: AggregatedCurvePoint[]): CurveStats {
+  const buy = curves.filter((point) => point.side === "Buy");
+  const sell = curves.filter((point) => point.side === "Sell");
+  const prices = curves.map((point) => point.unitPriceEurPerMwh);
+  const quantities = curves.map((point) => point.quantityMwh);
+
+  return {
+    totalPoints: curves.length,
+    buyPoints: buy.length,
+    sellPoints: sell.length,
+    buyMwh: buy.length ? buy.reduce((total, point) => total + point.quantityMwh, 0) : null,
+    sellMwh: sell.length ? sell.reduce((total, point) => total + point.quantityMwh, 0) : null,
+    lowPrice: minOrNull(prices),
+    highPrice: maxOrNull(prices),
+    lowQuantity: minOrNull(quantities),
+    highQuantity: maxOrNull(quantities),
+  };
+}
+
+function minOrNull(values: number[]) {
+  return values.length ? Math.min(...values) : null;
+}
+
+function maxOrNull(values: number[]) {
+  return values.length ? Math.max(...values) : null;
 }
 
 function SignalCard({ signal, compact = false }: { signal: ExternalSignalPanel; compact?: boolean }) {

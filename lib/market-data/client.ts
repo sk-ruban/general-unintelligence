@@ -2,7 +2,6 @@
 
 import * as Comlink from "comlink";
 import {
-  getJsonCurveSlice,
   getJsonDataHealth,
   getJsonMarketDays,
   getJsonPriceSeries,
@@ -39,6 +38,5 @@ const jsonClient: MarketDataApi = {
   initializeMarketDb: initializeJsonMarketData,
   getAvailableMarketDays: getJsonMarketDays,
   getDamPriceSeries: getJsonPriceSeries,
-  getCurveSlice: getJsonCurveSlice,
   getDataHealth: getJsonDataHealth,
 };

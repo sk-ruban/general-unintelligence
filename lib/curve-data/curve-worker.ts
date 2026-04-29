@@ -1,16 +1,16 @@
 import * as Comlink from "comlink";
-import type { DamPricePoint, DataHealth } from "@/lib/types";
-import { healthFromManifest, priceFromRaw } from "./normalize";
-import type { DayRange, RawPriceRow, StaticManifest } from "./types";
+import { curveFromRaw, healthFromManifest } from "@/lib/market-data/normalize";
+import type { RawCurveRow, StaticManifest } from "@/lib/market-data/types";
+import type { AggregatedCurvePoint, DataHealth } from "@/lib/types";
 
 let mode: DataHealth["mode"] = "json-fallback";
 let db: any = null;
 let conn: any = null;
-let prices: RawPriceRow[] = [];
+let curves: RawCurveRow[] = [];
 let manifest: StaticManifest | null = null;
 
 const api = {
-  async initializeMarketDb(): Promise<DataHealth> {
+  async initializeCurveDb(): Promise<DataHealth> {
     const loadedManifest = await loadJson<StaticManifest>("/data/dam/dam_static_manifest.json");
     manifest = loadedManifest;
 
@@ -27,50 +27,51 @@ const api = {
       await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
       conn = await db.connect();
       await db.registerFileURL(
-        "dam_prices.parquet",
-        "/data/dam/dam_prices.parquet",
+        "dam_curves.parquet",
+        "/data/dam/dam_curves.parquet",
         duckdb.DuckDBDataProtocol.HTTP,
         false,
       );
-      await queryRows("select count(*) as count from read_parquet('dam_prices.parquet')");
+      await queryRows("select count(*) as count from read_parquet('dam_curves.parquet')");
       mode = "duckdb";
     } catch (error) {
-      console.warn("DuckDB-WASM unavailable; using JSON fallback.", error);
-      prices = await loadJson<RawPriceRow[]>("/data/dam/dam_prices.json");
+      console.warn("DuckDB curve worker unavailable; using JSON curve fallback.", error);
+      curves = await loadJson<RawCurveRow[]>("/data/dam/dam_curves_sample.json");
       mode = "json-fallback";
     }
 
     return healthFromManifest(loadedManifest, mode);
   },
 
-  async getAvailableMarketDays(): Promise<string[]> {
+  async getAvailableCurveDays(): Promise<string[]> {
     if (mode === "duckdb" && conn) {
       const rows = await queryRows(
-        "select distinct market_date from read_parquet('dam_prices.parquet') order by 1",
+        "select distinct market_date from read_parquet('dam_curves.parquet') order by 1",
       );
       return rows.map((row: any) => String(row.market_date));
     }
-    return [...new Set(prices.map((row) => row.market_date))].sort();
+    return [...new Set(curves.map((row) => row.market_date))].sort();
   },
 
-  async getDamPriceSeries(dayRange: DayRange = {}): Promise<DamPricePoint[]> {
+  async getCurveSlice(marketDate: string, mtu: number): Promise<AggregatedCurvePoint[]> {
+    const safeMarketDate = assertMarketDate(marketDate);
+    const safeMtu = assertMtu(mtu);
     if (mode === "duckdb" && conn) {
-      const { params, where } = duckRangeWhere(dayRange);
       const rows = await queryPreparedRows(
-        `select * from read_parquet('dam_prices.parquet') ${where} order by market_date, mtu`,
-        params,
+        "select * from read_parquet('dam_curves.parquet') where market_date = ? and mtu = ? order by side, curve_order",
+        [safeMarketDate, safeMtu],
       );
-      return rows.map((row) => priceFromRaw(row as RawPriceRow));
+      return rows.map((row) => curveFromRaw(row as RawCurveRow));
     }
-    return prices
-      .filter((row) => inRange(row.market_date, dayRange))
-      .map(priceFromRaw)
-      .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc));
+    return curves
+      .filter((row) => row.market_date === safeMarketDate && Number(row.mtu) === safeMtu)
+      .map(curveFromRaw)
+      .sort((a, b) => a.side.localeCompare(b.side) || a.curveOrder - b.curveOrder);
   },
 
-  async getDataHealth(): Promise<DataHealth> {
+  async getCurveHealth(): Promise<DataHealth> {
     if (!manifest) {
-      return await api.initializeMarketDb();
+      return await api.initializeCurveDb();
     }
     return healthFromManifest(manifest, mode);
   },
@@ -113,26 +114,6 @@ async function loadJson<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function duckRangeWhere(dayRange: DayRange) {
-  const parts: string[] = [];
-  const params: string[] = [];
-  if (dayRange.from) {
-    parts.push("market_date >= ?");
-    params.push(assertMarketDate(dayRange.from));
-  }
-  if (dayRange.to) {
-    parts.push("market_date <= ?");
-    params.push(assertMarketDate(dayRange.to));
-  }
-  return { params, where: parts.length > 0 ? `where ${parts.join(" and ")}` : "" };
-}
-
-function inRange(marketDate: string, dayRange: DayRange) {
-  if (dayRange.from && marketDate < dayRange.from) return false;
-  if (dayRange.to && marketDate > dayRange.to) return false;
-  return true;
-}
-
 function assertMarketDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new Error(`Invalid marketDate: ${value}`);
@@ -140,6 +121,14 @@ function assertMarketDate(value: string) {
   return value;
 }
 
+function assertMtu(value: number) {
+  const mtu = Number(value);
+  if (!Number.isInteger(mtu) || mtu < 1 || mtu > 100) {
+    throw new Error(`Invalid MTU: ${value}`);
+  }
+  return mtu;
+}
+
 Comlink.expose(api);
 
-export type MarketWorkerApi = typeof api;
+export type CurveWorkerApi = typeof api;

@@ -1,20 +1,17 @@
-import type { AggregatedCurvePoint, DamPricePoint, DataHealth } from "@/lib/types";
-import { curveFromRaw, healthFromManifest, priceFromRaw } from "./normalize";
-import type { DayRange, RawCurveRow, RawPriceRow, StaticManifest } from "./types";
+import type { DamPricePoint, DataHealth } from "@/lib/types";
+import { healthFromManifest, priceFromRaw } from "./normalize";
+import type { DayRange, RawPriceRow, StaticManifest } from "./types";
 
 let priceRows: RawPriceRow[] | null = null;
-let curveRows: RawCurveRow[] | null = null;
 let manifest: StaticManifest | null = null;
 
 export async function initializeJsonMarketData(): Promise<DataHealth> {
-  const [prices, curves, loadedManifest] = await Promise.all([
+  const [prices, loadedManifest] = await Promise.all([
     loadJson<RawPriceRow[]>("/data/dam/dam_prices.json"),
-    loadJson<RawCurveRow[]>("/data/dam/dam_curves_sample.json"),
     loadJson<StaticManifest>("/data/dam/dam_static_manifest.json"),
   ]);
 
   priceRows = prices;
-  curveRows = curves;
   manifest = loadedManifest;
   return healthFromManifest(loadedManifest, "json-fallback");
 }
@@ -32,16 +29,6 @@ export async function getJsonPriceSeries(dayRange: DayRange = {}): Promise<DamPr
     .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc));
 }
 
-export async function getJsonCurveSlice(marketDate: string, mtu: number): Promise<AggregatedCurvePoint[]> {
-  await ensureJson();
-  const exact = (curveRows ?? []).filter((row) => row.market_date === marketDate && Number(row.mtu) === mtu);
-  const sameDay = (curveRows ?? []).filter((row) => row.market_date === marketDate);
-  const fallback = exact.length > 0 ? exact : sameDay;
-  return fallback
-    .map(curveFromRaw)
-    .sort((a, b) => a.side.localeCompare(b.side) || a.curveOrder - b.curveOrder);
-}
-
 export async function getJsonDataHealth(): Promise<DataHealth> {
   await ensureJson();
   if (!manifest) {
@@ -51,7 +38,7 @@ export async function getJsonDataHealth(): Promise<DataHealth> {
 }
 
 async function ensureJson() {
-  if (!priceRows || !curveRows || !manifest) {
+  if (!priceRows || !manifest) {
     await initializeJsonMarketData();
   }
 }
