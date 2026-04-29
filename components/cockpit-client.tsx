@@ -16,7 +16,6 @@ import {
   Search,
   Zap,
 } from "lucide-react";
-import { DateTime } from "luxon";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
@@ -28,14 +27,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -43,7 +34,6 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -101,7 +91,6 @@ const nav: {
   id: View;
   label: string;
   icon: ComponentType<{ className?: string }>;
-  badge?: string;
 }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
   { id: "portfolio", label: "Portfolio Map", icon: MapIcon },
@@ -109,7 +98,7 @@ const nav: {
   { id: "curves", label: "Market Curves", icon: Layers },
   { id: "signals", label: "Weather & Gas", icon: CloudSun },
   { id: "twin", label: "Battery Twin", icon: BatteryCharging },
-  { id: "model", label: "Model Lab", icon: Box, badge: "New" },
+  { id: "model", label: "Model Lab", icon: Box },
   { id: "scenarios", label: "Scenario Planner", icon: BarChart3 },
   { id: "health", label: "Data Health", icon: Database },
 ];
@@ -249,14 +238,14 @@ export function CockpitClient() {
         className="h-full min-h-0"
         style={
           {
-            "--sidebar-width": "15rem",
+            "--sidebar-width": "13rem",
             "--sidebar-width-icon": "3rem",
           } as CSSProperties
         }
       >
         <AppSidebar activeView={view} onViewChange={setView} />
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <TopBar selectedDay={selectedDay} days={days} onDayChange={setSelectedDay} />
+          <TopBar selectedDay={selectedDay} />
           <PanelGroup direction="horizontal" className="min-h-0 flex-1">
             <ResizePanel className="min-h-0 overflow-hidden" defaultSize={76} minSize={54}>
               <main className="dense-scrollbar flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto p-4">
@@ -353,7 +342,7 @@ function AppSidebar({ activeView, onViewChange }: { activeView: View; onViewChan
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup className="p-2">
+        <SidebarGroup className="px-0 py-3">
           <SidebarGroupContent>
             <SidebarMenu className="gap-0">
               {nav.map((item) => {
@@ -364,7 +353,7 @@ function AppSidebar({ activeView, onViewChange }: { activeView: View; onViewChan
                     <SidebarMenuButton
                       isActive={active}
                       tooltip={item.label}
-                      className="relative h-8 rounded-none px-8 text-[13px] font-normal text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-100 data-[active=true]:bg-white/[0.03] data-[active=true]:font-normal data-[active=true]:text-zinc-100 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:data-[active=true]:bg-transparent group-data-[collapsible=icon]:hover:bg-white/[0.03] [&>svg]:size-3.5"
+                      className="relative h-8 gap-3 rounded-none px-4 text-[13px] font-normal text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-100 data-[active=true]:bg-white/[0.03] data-[active=true]:font-normal data-[active=true]:text-zinc-100 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:rounded-none group-data-[collapsible=icon]:data-[active=true]:bg-transparent group-data-[collapsible=icon]:hover:bg-white/[0.03] [&>svg]:size-3.5"
                       onClick={() => onViewChange(item.id)}
                     >
                       {active ? (
@@ -373,11 +362,6 @@ function AppSidebar({ activeView, onViewChange }: { activeView: View; onViewChan
                       <Icon className={active ? "text-[var(--cyan)]" : "opacity-70"} />
                       <span className="group-data-[collapsible=icon]:hidden">{item.label}</span>
                     </SidebarMenuButton>
-                    {item.badge ? (
-                      <SidebarMenuBadge className="border border-white/10 text-[9px] uppercase">
-                        {item.badge}
-                      </SidebarMenuBadge>
-                    ) : null}
                   </SidebarMenuItem>
                 );
               })}
@@ -401,18 +385,8 @@ function AppSidebar({ activeView, onViewChange }: { activeView: View; onViewChan
   );
 }
 
-function TopBar({
-  selectedDay,
-  days,
-  onDayChange,
-}: {
-  selectedDay: string;
-  days: string[];
-  onDayChange: (value: string) => void;
-}) {
-  const formattedDay = selectedDay
-    ? DateTime.fromISO(selectedDay, { zone: "Europe/Athens" }).toFormat("dd-LLL-yyyy").toUpperCase()
-    : "LOADING";
+function TopBar({ selectedDay }: { selectedDay: string }) {
+  const dayLabel = selectedDay || "loading";
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-white/10 border-b bg-[var(--bg-base)] px-4">
@@ -422,28 +396,10 @@ function TopBar({
           Live Mode
         </div>
         <div className="mono hidden truncate text-[11px] text-zinc-500 md:block">
-          {formattedDay} | Europe/Athens (EET)
+          Latest HEnEx DAM {dayLabel} | Europe/Athens
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-3">
-        <Tag tone="outline">HEnEx DAM Fresh</Tag>
-        <Select value={selectedDay} onValueChange={onDayChange} disabled={days.length === 0}>
-          <SelectTrigger
-            className="mono h-7 w-[144px] shrink-0 rounded border-white/10 bg-[var(--bg-raised)] px-3 text-[12px] text-zinc-100 shadow-none"
-            aria-label="Select market day"
-          >
-            <SelectValue placeholder="Select day" />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectGroup>
-              {days.map((day) => (
-                <SelectItem key={day} value={day}>
-                  {day}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </SelectContent>
-        </Select>
         <Button
           variant="outline"
           size="sm"
@@ -544,9 +500,13 @@ function ControlRoom({
             kicker={loading ? "Loading market layer" : priceSeriesKicker(chartPrices, priceRange)}
             right={<PriceRangeControl value={priceRange} onChange={onPriceRangeChange} />}
           />
-          <div className="p-3">
+          <div className="px-3 pt-2 pb-3">
             {priceChartData.length > 0 ? (
-              <PriceChart key={priceChartKey(priceRange, priceChartData)} data={priceChartData} height={220} />
+              <PriceChart
+                key={priceChartKey(priceRange, priceChartData)}
+                data={priceChartData}
+                height={340}
+              />
             ) : (
               <EmptyPriceState range={priceRange} />
             )}
@@ -666,11 +626,8 @@ function PriceRangeControl({
   onChange: (range: PriceRange) => void;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="hidden text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em] sm:inline">
-        Duration
-      </span>
-      <div className="flex flex-wrap items-center gap-1">
+    <div className="flex items-center">
+      <div className="flex items-center gap-1">
         {PRICE_RANGES.map((range) => (
           <button
             key={range}

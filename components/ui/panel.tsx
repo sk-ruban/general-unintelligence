@@ -25,8 +25,8 @@ export function PanelHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 border-white/10 border-b px-3 py-1.5">
-      <div className="min-w-0">
+    <div className="flex min-h-9 items-center justify-between gap-2 border-white/10 border-b px-3 py-1.5">
+      <div className="min-w-0 flex-1">
         <div className="mono truncate font-medium text-[11px] text-zinc-500 uppercase tracking-[0.05em]">
           {title}
         </div>
