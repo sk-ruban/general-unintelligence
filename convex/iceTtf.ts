@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { action, internalMutation, internalQuery, query } from "./_generated/server";
 
 const SOURCE = "ice-delayed-product-guide";
 const ICE_BASE_URL = "https://www.ice.com";
@@ -101,7 +101,9 @@ async function fetchContracts(): Promise<Contract[]> {
     productId: String(PRODUCT_ID),
     hubId: String(HUB_ID),
   });
-  const rows = await fetchJson(`${ICE_BASE_URL}/marketdata/api/productguide/charting/contract-data?${params}`);
+  const rows = await fetchJson(
+    `${ICE_BASE_URL}/marketdata/api/productguide/charting/contract-data?${params}`,
+  );
   if (!Array.isArray(rows)) {
     throw new Error("ICE contract endpoint returned a non-list response");
   }
@@ -128,7 +130,9 @@ function selectContract(contracts: Contract[], selection: ContractSelection, mar
     return match;
   }
   if (selection === "highest-volume") {
-    return contracts.reduce((best, contract) => (contract.volume ?? 0) > (best.volume ?? 0) ? contract : best);
+    return contracts.reduce((best, contract) =>
+      (contract.volume ?? 0) > (best.volume ?? 0) ? contract : best,
+    );
   }
   return contracts[0];
 }
@@ -203,7 +207,9 @@ async function dataForFetch(ctx: { db: any }, fetchDoc: any) {
     .query("ttfHistoricalBars")
     .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
     .first();
-  const selectedContract = contracts?.rows?.find((contract: Contract) => contract.marketId === fetchDoc.selectedMarketId);
+  const selectedContract = contracts?.rows?.find(
+    (contract: Contract) => contract.marketId === fetchDoc.selectedMarketId,
+  );
 
   return {
     fetch: fetchDoc,
@@ -410,9 +416,17 @@ export const refreshIceTtf = action({
   },
   handler: async (ctx, args): Promise<Record<string, unknown>> => {
     const maxAgeMinutes = boundedInteger(args.maxAgeMinutes, DEFAULT_MAX_AGE_MINUTES, 0, 24 * 60);
-    const contractSelection: ContractSelection = args.contractSelection === "highest-volume" ? "highest-volume" : "front-month";
-    const marketId = args.marketId === undefined ? undefined : boundedInteger(args.marketId, args.marketId, 1, Number.MAX_SAFE_INTEGER);
-    const historicalSpan = ["1", "2", "3"].includes(args.historicalSpan ?? "") ? args.historicalSpan! : "1";
+    const contractSelection: ContractSelection =
+      args.contractSelection === "highest-volume" ? "highest-volume" : "front-month";
+    const marketId =
+      args.marketId === undefined
+        ? undefined
+        : boundedInteger(args.marketId, args.marketId, 1, Number.MAX_SAFE_INTEGER);
+    const requestedHistoricalSpan = args.historicalSpan;
+    const historicalSpan =
+      requestedHistoricalSpan && ["1", "2", "3"].includes(requestedHistoricalSpan)
+        ? requestedHistoricalSpan
+        : "1";
     const efficiency = boundedNumber(args.efficiency, DEFAULT_EFFICIENCY, 0.1, 1);
     const latest: any = await ctx.runQuery(internal.iceTtf.getCompatibleFetch, {
       contractSelection,
@@ -441,6 +455,9 @@ export const refreshIceTtf = action({
     const sourceUrl = `${ICE_BASE_URL}/products/${SPEC_ID}/Dutch-TTF-Natural-Gas-Futures/data`;
     const contracts = await fetchContracts();
     const selectedContract = selectContract(contracts, contractSelection, marketId);
+    if (!selectedContract) {
+      throw new Error("ICE returned no selectable Dutch TTF contract");
+    }
     const [intradayBars, historicalBars] = await Promise.all([
       fetchBars(selectedContract.marketId, "intraday", historicalSpan),
       fetchBars(selectedContract.marketId, "historical", historicalSpan),

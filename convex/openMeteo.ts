@@ -1,6 +1,7 @@
 import { v } from "convex/values";
-import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { action, internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 
 const SOURCE = "open-meteo";
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
@@ -76,25 +77,9 @@ const VARIABLE_GROUPS = {
     "cloud_cover_mid",
     "cloud_cover_high",
   ],
-  wind: [
-    "wind_speed_10m",
-    "wind_speed_80m",
-    "wind_direction_10m",
-    "wind_direction_80m",
-    "wind_gusts_10m",
-  ],
-  loadWeather: [
-    "temperature_2m",
-    "apparent_temperature",
-    "relative_humidity_2m",
-  ],
-  precipitationRisk: [
-    "precipitation",
-    "rain",
-    "weather_code",
-    "cape",
-    "visibility",
-  ],
+  wind: ["wind_speed_10m", "wind_speed_80m", "wind_direction_10m", "wind_direction_80m", "wind_gusts_10m"],
+  loadWeather: ["temperature_2m", "apparent_temperature", "relative_humidity_2m"],
+  precipitationRisk: ["precipitation", "rain", "weather_code", "cape", "visibility"],
 };
 
 type Location = {
@@ -113,7 +98,7 @@ type RefreshArgs = {
   pastSteps?: number;
 };
 type FetchSelector = {
-  fetchId?: string;
+  fetchId?: Id<"weatherFetches">;
   asOfFetchedAtUtc?: string;
 };
 type NormalizedLocation = Location & {
@@ -246,7 +231,9 @@ async function fetchJson(url: string) {
 
 function responseList(payload: unknown): Record<string, unknown>[] {
   if (Array.isArray(payload)) {
-    return payload.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object");
+    return payload.filter(
+      (item): item is Record<string, unknown> => item !== null && typeof item === "object",
+    );
   }
   if (payload !== null && typeof payload === "object") {
     return [payload as Record<string, unknown>];
@@ -444,6 +431,9 @@ function normalizeOpenMeteoResponse(payload: unknown) {
 
   const regional = responses.map((response, index): NormalizedLocation => {
     const location = LOCATIONS[index];
+    if (!location) {
+      throw new Error(`Missing configured location for Open-Meteo response index ${index}`);
+    }
     const minutelyRows = rowsFromBlock(response.minutely_15, MINUTELY_15_VARIABLES);
     const hourlyRows = rowsFromBlock(response.hourly, HOURLY_AUX_VARIABLES);
     return {
@@ -458,9 +448,9 @@ function normalizeOpenMeteoResponse(payload: unknown) {
     regional,
     nationalSeries: aggregateNational(regional),
     units: {
-      minutely15: responses[0].minutely_15_units ?? {},
-      hourlyAux: responses[0].hourly_units ?? {},
-      current: responses[0].current_units ?? {},
+      minutely15: responses[0]?.minutely_15_units ?? {},
+      hourlyAux: responses[0]?.hourly_units ?? {},
+      current: responses[0]?.current_units ?? {},
     },
   };
 }
@@ -475,7 +465,7 @@ async function latestFetch(ctx: { db: any }) {
 
 async function fetchForSelector(ctx: { db: any }, selector: FetchSelector) {
   if (selector.fetchId !== undefined) {
-    const fetchDoc = await ctx.db.get(selector.fetchId as any);
+    const fetchDoc = await ctx.db.get(selector.fetchId);
     if (!fetchDoc || fetchDoc.source !== SOURCE) {
       return null;
     }
@@ -509,7 +499,12 @@ function fetchSummary(fetchDoc: any) {
   };
 }
 
-async function telemetryForFetch(ctx: { db: any }, fetchDoc: any, includeRegional: boolean, locationId?: string) {
+async function telemetryForFetch(
+  ctx: { db: any },
+  fetchDoc: any,
+  includeRegional: boolean,
+  locationId?: string,
+) {
   const national = await ctx.db
     .query("weatherNationalSeries")
     .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
@@ -771,8 +766,7 @@ export const getWeatherCoverage = query({
       timezone: TIMEZONE,
       latestFetch: latest ? fetchSummary(latest) : null,
       oldestFetch: oldest ? fetchSummary(oldest) : null,
-      note:
-        "Forecast rows are stored per Open-Meteo fetch. Use fetchId for exact run selection or asOfFetchedAtUtc for point-in-time dashboard reconstruction.",
+      note: "Forecast rows are stored per Open-Meteo fetch. Use fetchId for exact run selection or asOfFetchedAtUtc for point-in-time dashboard reconstruction.",
     };
   },
 });
@@ -844,7 +838,9 @@ export const compareWeatherRuns = query({
       const regionalLocationId = locationId;
       const regional = await ctx.db
         .query("weatherRegionalSeries")
-        .withIndex("by_fetch_location", (q) => q.eq("fetchId", fetchDoc._id).eq("locationId", regionalLocationId))
+        .withIndex("by_fetch_location", (q) =>
+          q.eq("fetchId", fetchDoc._id).eq("locationId", regionalLocationId),
+        )
         .first();
       const row = ((regional?.rows ?? []) as Row[]).find((item) => item.timestamp === args.timestamp);
       runs.push({

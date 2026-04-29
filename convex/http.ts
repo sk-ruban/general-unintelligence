@@ -1,6 +1,7 @@
 import { httpRouter } from "convex/server";
-import { httpAction } from "./_generated/server";
 import { api } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { httpAction } from "./_generated/server";
 
 const http = httpRouter();
 
@@ -51,6 +52,37 @@ function stringParam(searchParams: URLSearchParams, key: string) {
   return value === null || value.trim() === "" ? undefined : value;
 }
 
+function invalidIdResponse(tableName: string, value: string) {
+  return jsonResponse(
+    {
+      error: `Invalid ${tableName} id: ${value}`,
+    },
+    { status: 400, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function convexIdParam<TableName extends "weatherFetches" | "ttfFetches">(
+  searchParams: URLSearchParams,
+  key: string,
+  tableName: TableName,
+): { ok: true; value: Id<TableName> | undefined } | { ok: false; response: Response } {
+  const value = stringParam(searchParams, key);
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(value)) {
+    return { ok: false, response: invalidIdResponse(tableName, value) };
+  }
+  return { ok: true, value: value as Id<TableName> };
+}
+
+function ttfFetchIdFromRefresh(fetchId: string): Id<"ttfFetches"> {
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(fetchId)) {
+    throw new Error(`ICE TTF refresh returned an invalid fetchId: ${fetchId}`);
+  }
+  return fetchId as Id<"ttfFetches">;
+}
+
 function ttfRefreshArgsFromSearch(searchParams: URLSearchParams) {
   return {
     force: booleanParam(searchParams, "force"),
@@ -80,9 +112,16 @@ async function refreshTtfFromSearch(ctx: any, searchParams: URLSearchParams) {
 }
 
 function weatherFetchSelectorFromSearch(searchParams: URLSearchParams) {
+  const fetchId = convexIdParam(searchParams, "fetchId", "weatherFetches");
+  if (!fetchId.ok) {
+    return fetchId;
+  }
   return {
-    fetchId: stringParam(searchParams, "fetchId") as any,
-    asOfFetchedAtUtc: stringParam(searchParams, "asOf") ?? stringParam(searchParams, "asOfFetchedAtUtc"),
+    ok: true as const,
+    value: {
+      fetchId: fetchId.value,
+      asOfFetchedAtUtc: stringParam(searchParams, "asOf") ?? stringParam(searchParams, "asOfFetchedAtUtc"),
+    },
   };
 }
 
@@ -92,6 +131,10 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
     const shouldRefresh = booleanParam(searchParams, "refresh") ?? false;
+    const selector = weatherFetchSelectorFromSearch(searchParams);
+    if (!selector.ok) {
+      return selector.response;
+    }
 
     if (shouldRefresh) {
       await ctx.runAction(api.openMeteo.refreshOpenMeteoTelemetry, {
@@ -103,14 +146,15 @@ http.route({
     }
 
     const telemetry = await ctx.runQuery(api.openMeteo.getLatestTelemetry, {
-      ...weatherFetchSelectorFromSearch(searchParams),
+      ...selector.value,
       includeRegional: booleanParam(searchParams, "includeRegional"),
       locationId: stringParam(searchParams, "locationId"),
     });
     if (!telemetry) {
       return jsonResponse(
         {
-          error: "No cached Open-Meteo telemetry is available yet. Wait for the cron or call POST /weather/open-meteo/refresh.",
+          error:
+            "No cached Open-Meteo telemetry is available yet. Wait for the cron or call POST /weather/open-meteo/refresh.",
         },
         { status: 404, headers: { "Cache-Control": "no-store" } },
       );
@@ -130,9 +174,13 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
+    const selector = weatherFetchSelectorFromSearch(searchParams);
+    if (!selector.ok) {
+      return selector.response;
+    }
     return jsonResponse(
       await ctx.runQuery(api.openMeteo.getWeatherCatalog, {
-        ...weatherFetchSelectorFromSearch(searchParams),
+        ...selector.value,
         includeRecentFetches: booleanParam(searchParams, "includeRecentFetches"),
         fetchLimit: numberParam(searchParams, "fetchLimit"),
       }),
@@ -151,8 +199,12 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
+    const selector = weatherFetchSelectorFromSearch(searchParams);
+    if (!selector.ok) {
+      return selector.response;
+    }
     const current = await ctx.runQuery(api.openMeteo.getWeatherCurrent, {
-      ...weatherFetchSelectorFromSearch(searchParams),
+      ...selector.value,
       locationIds: searchParams.get("locationIds")?.split(",").filter(Boolean),
       variables: searchParams.get("variables")?.split(",").filter(Boolean),
       group: stringParam(searchParams, "group"),
@@ -175,8 +227,12 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
+    const selector = weatherFetchSelectorFromSearch(searchParams);
+    if (!selector.ok) {
+      return selector.response;
+    }
     const series = await ctx.runQuery(api.openMeteo.getWeatherSeries, {
-      ...weatherFetchSelectorFromSearch(searchParams),
+      ...selector.value,
       scope: stringParam(searchParams, "scope"),
       locationId: stringParam(searchParams, "locationId"),
       variables: searchParams.get("variables")?.split(",").filter(Boolean),
@@ -268,11 +324,16 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
-    const panel = await ctx.runQuery(api.openMeteo.getDashboardPanel, weatherFetchSelectorFromSearch(searchParams));
+    const selector = weatherFetchSelectorFromSearch(searchParams);
+    if (!selector.ok) {
+      return selector.response;
+    }
+    const panel = await ctx.runQuery(api.openMeteo.getDashboardPanel, selector.value);
     if (!panel) {
       return jsonResponse(
         {
-          error: "No cached Open-Meteo telemetry is available yet. Wait for the cron or call POST /weather/open-meteo/refresh.",
+          error:
+            "No cached Open-Meteo telemetry is available yet. Wait for the cron or call POST /weather/open-meteo/refresh.",
         },
         { status: 404, headers: { "Cache-Control": "no-store" } },
       );
@@ -358,7 +419,7 @@ http.route({
     const searchParams = new URL(request.url).searchParams;
     const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
     const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: fetchId as any,
+      fetchId: ttfFetchIdFromRefresh(fetchId),
       includeContracts: true,
       includeIntraday: true,
       includeHistorical: true,
@@ -370,7 +431,14 @@ http.route({
         panel: {
           title: "Dutch TTF Natural Gas",
           description: "Flexible ICE TTF data surface for dashboard cards, curves, and charts.",
-          cards: ["currentPrice", "fuelCostProxy", "forwardCurve", "intradayTrend", "historicalTrend", "dataFreshness"],
+          cards: [
+            "currentPrice",
+            "fuelCostProxy",
+            "forwardCurve",
+            "intradayTrend",
+            "historicalTrend",
+            "dataFreshness",
+          ],
         },
       },
       {
@@ -395,7 +463,7 @@ http.route({
     const searchParams = new URL(request.url).searchParams;
     const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
     const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: fetchId as any,
+      fetchId: ttfFetchIdFromRefresh(fetchId),
       includeContracts: true,
       includeIntraday: false,
       includeHistorical: false,
@@ -430,7 +498,7 @@ http.route({
     const searchParams = new URL(request.url).searchParams;
     const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
     const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: fetchId as any,
+      fetchId: ttfFetchIdFromRefresh(fetchId),
       includeContracts: false,
       includeIntraday: true,
       includeHistorical: false,
@@ -465,7 +533,7 @@ http.route({
     const searchParams = new URL(request.url).searchParams;
     const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
     const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: fetchId as any,
+      fetchId: ttfFetchIdFromRefresh(fetchId),
       includeContracts: false,
       includeIntraday: false,
       includeHistorical: true,
@@ -576,7 +644,8 @@ http.route({
       force: typeof body.force === "boolean" ? body.force : undefined,
       maxAgeMinutes: typeof body.maxAgeMinutes === "number" ? body.maxAgeMinutes : undefined,
       lookbackDays: typeof body.lookbackDays === "number" ? body.lookbackDays : undefined,
-      greekPowerShortCode: typeof body.greekPowerShortCode === "string" ? body.greekPowerShortCode : undefined,
+      greekPowerShortCode:
+        typeof body.greekPowerShortCode === "string" ? body.greekPowerShortCode : undefined,
       greekPowerMaturity: typeof body.greekPowerMaturity === "string" ? body.greekPowerMaturity : undefined,
     });
     const context = await ctx.runQuery(api.eex.getLatestEexContext, {});
@@ -675,7 +744,8 @@ http.route({
       shortCode: typeof body.shortCode === "string" ? body.shortCode : undefined,
       startDate: typeof body.startDate === "string" ? body.startDate : undefined,
       endDate: typeof body.endDate === "string" ? body.endDate : undefined,
-      underlyingShortCode: typeof body.underlyingShortCode === "string" ? body.underlyingShortCode : undefined,
+      underlyingShortCode:
+        typeof body.underlyingShortCode === "string" ? body.underlyingShortCode : undefined,
       underlyingMaturity: typeof body.underlyingMaturity === "string" ? body.underlyingMaturity : undefined,
     });
     return jsonResponse(result, { headers: { "Cache-Control": "no-store" } });

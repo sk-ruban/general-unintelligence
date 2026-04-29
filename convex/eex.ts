@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { action, internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { action, internalMutation, internalQuery, query } from "./_generated/server";
 
 const SOURCE = "eex-market-data-hub";
 const TIMEZONE = "Europe/Athens";
@@ -71,7 +71,11 @@ function encodeScope(scope: Record<string, string>[]) {
   return btoa(json);
 }
 
-function filterScope(overrides: Partial<Record<"commodity" | "pricing" | "area" | "product" | "productSpecific" | "maturityType", string>>) {
+function filterScope(
+  overrides: Partial<
+    Record<"commodity" | "pricing" | "area" | "product" | "productSpecific" | "maturityType", string>
+  >,
+) {
   return [
     {
       commodity: overrides.commodity ?? "All",
@@ -128,6 +132,7 @@ function numberValue(value: unknown) {
 }
 
 function latestMaturity(rows: FilterRow[], shortCode: string, requestedMaturity?: string) {
+  // TODO: Replace lexicographic selection if EEX returns mixed labels like Apr 2026, Q3-2026, or Cal-27.
   const candidates = rows
     .filter((row) => row.shortCode === shortCode)
     .map((row) => row.maturity)
@@ -328,9 +333,15 @@ function eexScopeFromArgs(args: {
 
 function selectEuaInstrument(rows: FilterRow[]) {
   return (
-    rows.find((row) => row.commodity === "ENVIRONMENTALS" && row.pricing === "S" && row.area === "EU" && row.product === "EUA") ??
+    rows.find(
+      (row) =>
+        row.commodity === "ENVIRONMENTALS" &&
+        row.pricing === "S" &&
+        row.area === "EU" &&
+        row.product === "EUA",
+    ) ??
     rows.find((row) => row.commodity === "ENVIRONMENTALS" && row.area === "EU" && row.product === "EUA") ??
-    rows[0]
+    null
   );
 }
 
@@ -344,11 +355,26 @@ async function latestFetch(ctx: { db: any }) {
 
 async function dataForFetch(ctx: { db: any }, fetchDoc: any) {
   const [greekInstruments, greekTicker, greekTable, euaInstruments, euaTicker] = await Promise.all([
-    ctx.db.query("eexGreekPowerInstruments").withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id)).first(),
-    ctx.db.query("eexGreekPowerTicker").withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id)).first(),
-    ctx.db.query("eexGreekPowerTableData").withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id)).first(),
-    ctx.db.query("eexEuaInstruments").withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id)).first(),
-    ctx.db.query("eexEuaTicker").withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id)).first(),
+    ctx.db
+      .query("eexGreekPowerInstruments")
+      .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+      .first(),
+    ctx.db
+      .query("eexGreekPowerTicker")
+      .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+      .first(),
+    ctx.db
+      .query("eexGreekPowerTableData")
+      .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+      .first(),
+    ctx.db
+      .query("eexEuaInstruments")
+      .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+      .first(),
+    ctx.db
+      .query("eexEuaTicker")
+      .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+      .first(),
   ]);
 
   return {
@@ -489,7 +515,10 @@ export const refreshEexContext = action({
       maturityType: "All",
     });
 
-    const [greekPowerPayload, euaPayload] = await Promise.all([fetchFilterData(greekPowerScope), fetchFilterData(euaScope)]);
+    const [greekPowerPayload, euaPayload] = await Promise.all([
+      fetchFilterData(greekPowerScope),
+      fetchFilterData(euaScope),
+    ]);
     const greekPowerInstruments = normalizeRows(greekPowerPayload);
     const euaInstruments = normalizeRows(euaPayload);
 
@@ -558,8 +587,7 @@ export const refreshEexContext = action({
       euaPriceEurPerTonne,
       health: {
         status: "ok",
-        note:
-          "EEX data is cached as context for reports, scenarios, and LLM analysis; HEnEx DAM/intraday remains the dispatch-price source.",
+        note: "EEX data is cached as context for reports, scenarios, and LLM analysis; HEnEx DAM/intraday remains the dispatch-price source.",
       },
     });
 
