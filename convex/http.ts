@@ -2,55 +2,18 @@ import { httpRouter } from "convex/server";
 import { api } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
+import {
+  booleanParam,
+  damDateRangeFromSearch,
+  fetchIdFromRefresh,
+  jsonResponse,
+  numberParam,
+  optionsResponse,
+  stringParam,
+  ttfRefreshArgsFromSearch,
+} from "./httpShared";
 
 const http = httpRouter();
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
-function jsonResponse(body: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(body), {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "public, max-age=60",
-      ...corsHeaders,
-      ...(init?.headers ?? {}),
-    },
-  });
-}
-
-function optionsResponse() {
-  return new Response(null, {
-    status: 204,
-    headers: corsHeaders,
-  });
-}
-
-function numberParam(searchParams: URLSearchParams, key: string) {
-  const value = searchParams.get(key);
-  if (value === null || value.trim() === "") {
-    return undefined;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function booleanParam(searchParams: URLSearchParams, key: string) {
-  const value = searchParams.get(key);
-  if (value === null) {
-    return undefined;
-  }
-  return value === "1" || value.toLowerCase() === "true";
-}
-
-function stringParam(searchParams: URLSearchParams, key: string) {
-  const value = searchParams.get(key);
-  return value === null || value.trim() === "" ? undefined : value;
-}
 
 function invalidIdResponse(tableName: string, value: string) {
   return jsonResponse(
@@ -83,25 +46,6 @@ function ttfFetchIdFromRefresh(fetchId: string): Id<"ttfFetches"> {
   return fetchId as Id<"ttfFetches">;
 }
 
-function ttfRefreshArgsFromSearch(searchParams: URLSearchParams) {
-  return {
-    force: booleanParam(searchParams, "force"),
-    maxAgeMinutes: numberParam(searchParams, "maxAgeMinutes"),
-    contractSelection: stringParam(searchParams, "contractSelection"),
-    marketId: numberParam(searchParams, "marketId"),
-    historicalSpan: stringParam(searchParams, "historicalSpan"),
-    efficiency: numberParam(searchParams, "efficiency"),
-  };
-}
-
-function fetchIdFromRefresh(refreshResult: unknown) {
-  if (refreshResult !== null && typeof refreshResult === "object" && "fetchId" in refreshResult) {
-    const fetchId = (refreshResult as { fetchId?: unknown }).fetchId;
-    return typeof fetchId === "string" ? fetchId : undefined;
-  }
-  return undefined;
-}
-
 async function refreshTtfFromSearch(ctx: any, searchParams: URLSearchParams) {
   const refreshResult = await ctx.runAction(api.iceTtf.refreshIceTtf, ttfRefreshArgsFromSearch(searchParams));
   const fetchId = fetchIdFromRefresh(refreshResult);
@@ -124,15 +68,6 @@ function weatherFetchSelectorFromSearch(searchParams: URLSearchParams) {
     },
   };
 }
-
-function damDateRangeFromSearch(searchParams: URLSearchParams) {
-  return {
-    date: stringParam(searchParams, "date"),
-    from: stringParam(searchParams, "from"),
-    to: stringParam(searchParams, "to"),
-  };
-}
-
 http.route({
   path: "/market/dam/catalog",
   method: "GET",
@@ -550,16 +485,22 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
-    const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
-    const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: ttfFetchIdFromRefresh(fetchId),
-      includeContracts: true,
-      includeIntraday: true,
-      includeHistorical: true,
-    });
+    const shouldRefresh = booleanParam(searchParams, "refresh") ?? false;
+    const refresh = shouldRefresh ? await refreshTtfFromSearch(ctx, searchParams) : null;
+    const data = refresh
+      ? await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
+          fetchId: ttfFetchIdFromRefresh(refresh.fetchId),
+          includeContracts: true,
+          includeIntraday: true,
+          includeHistorical: true,
+        })
+      : await ctx.runQuery(api.iceTtf.getDashboardPanel, {});
+    if (!data) {
+      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
     return jsonResponse(
       {
-        refresh: refreshResult,
+        refresh: refresh?.refreshResult,
         ...data,
         panel: {
           title: "Dutch TTF Natural Gas",
@@ -594,16 +535,22 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
-    const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
-    const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: ttfFetchIdFromRefresh(fetchId),
-      includeContracts: true,
-      includeIntraday: false,
-      includeHistorical: false,
-    });
+    const shouldRefresh = booleanParam(searchParams, "refresh") ?? false;
+    const refresh = shouldRefresh ? await refreshTtfFromSearch(ctx, searchParams) : null;
+    const data = refresh
+      ? await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
+          fetchId: ttfFetchIdFromRefresh(refresh.fetchId),
+          includeContracts: true,
+          includeIntraday: false,
+          includeHistorical: false,
+        })
+      : await ctx.runQuery(api.iceTtf.getContracts, {});
+    if (!data) {
+      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
     return jsonResponse(
       {
-        refresh: refreshResult,
+        refresh: refresh?.refreshResult,
         fetch: data?.fetch,
         instrument: data?.instrument,
         selectedContract: data?.selectedContract,
@@ -629,16 +576,22 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
-    const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
-    const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: ttfFetchIdFromRefresh(fetchId),
-      includeContracts: false,
-      includeIntraday: true,
-      includeHistorical: false,
-    });
+    const shouldRefresh = booleanParam(searchParams, "refresh") ?? false;
+    const refresh = shouldRefresh ? await refreshTtfFromSearch(ctx, searchParams) : null;
+    const data = refresh
+      ? await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
+          fetchId: ttfFetchIdFromRefresh(refresh.fetchId),
+          includeContracts: false,
+          includeIntraday: true,
+          includeHistorical: false,
+        })
+      : await ctx.runQuery(api.iceTtf.getIntraday, {});
+    if (!data) {
+      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
     return jsonResponse(
       {
-        refresh: refreshResult,
+        refresh: refresh?.refreshResult,
         fetch: data?.fetch,
         instrument: data?.instrument,
         selectedContract: data?.selectedContract,
@@ -664,16 +617,22 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const searchParams = new URL(request.url).searchParams;
-    const { refreshResult, fetchId } = await refreshTtfFromSearch(ctx, searchParams);
-    const data = await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
-      fetchId: ttfFetchIdFromRefresh(fetchId),
-      includeContracts: false,
-      includeIntraday: false,
-      includeHistorical: true,
-    });
+    const shouldRefresh = booleanParam(searchParams, "refresh") ?? false;
+    const refresh = shouldRefresh ? await refreshTtfFromSearch(ctx, searchParams) : null;
+    const data = refresh
+      ? await ctx.runQuery(api.iceTtf.getTtfByFetchId, {
+          fetchId: ttfFetchIdFromRefresh(refresh.fetchId),
+          includeContracts: false,
+          includeIntraday: false,
+          includeHistorical: true,
+        })
+      : await ctx.runQuery(api.iceTtf.getHistorical, {});
+    if (!data) {
+      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
     return jsonResponse(
       {
-        refresh: refreshResult,
+        refresh: refresh?.refreshResult,
         fetch: data?.fetch,
         instrument: data?.instrument,
         selectedContract: data?.selectedContract,

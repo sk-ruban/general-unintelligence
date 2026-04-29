@@ -510,10 +510,22 @@ async function telemetryForFetch(
     .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
     .first();
 
-  const current = await ctx.db
-    .query("weatherCurrentByLocation")
-    .withIndex("by_fetch_location", (q: any) => q.eq("fetchId", fetchDoc._id))
-    .collect();
+  const currentDoc =
+    locationId !== undefined
+      ? await ctx.db
+          .query("weatherCurrentByLocation")
+          .withIndex("by_fetch_location", (q: any) => q.eq("fetchId", fetchDoc._id).eq("locationId", locationId))
+          .first()
+      : null;
+  const current =
+    locationId !== undefined
+      ? currentDoc
+        ? [currentDoc]
+        : []
+      : await ctx.db
+          .query("weatherCurrentByLocation")
+          .withIndex("by_fetch_location", (q: any) => q.eq("fetchId", fetchDoc._id))
+          .collect();
 
   let regional: unknown[] = [];
   if (locationId !== undefined) {
@@ -622,10 +634,23 @@ export const getWeatherCurrent = query({
     }
     const requestedLocations = args.locationIds === undefined ? null : new Set(args.locationIds);
     const variables = variablesForRequest(args.variables, args.group);
-    const rows = await ctx.db
-      .query("weatherCurrentByLocation")
-      .withIndex("by_fetch_location", (q) => q.eq("fetchId", fetchDoc._id))
-      .collect();
+    const singleLocationId = requestedLocations?.size === 1 ? [...requestedLocations][0]! : null;
+    const singleRow =
+      singleLocationId !== null
+        ? await ctx.db
+            .query("weatherCurrentByLocation")
+            .withIndex("by_fetch_location", (q) => q.eq("fetchId", fetchDoc._id).eq("locationId", singleLocationId))
+            .first()
+        : null;
+    const rows =
+      singleLocationId !== null
+        ? singleRow
+          ? [singleRow]
+          : []
+        : await ctx.db
+            .query("weatherCurrentByLocation")
+            .withIndex("by_fetch_location", (q) => q.eq("fetchId", fetchDoc._id))
+            .collect();
 
     return {
       fetch: fetchDoc,
@@ -730,24 +755,22 @@ export const listWeatherFetches = query({
     const limit = boundedInteger(args.limit, 24, 1, 200);
     const fetches = await ctx.db
       .query("weatherFetches")
-      .withIndex("by_source_fetchedAt", (q) => q.eq("source", SOURCE))
-      .order("desc")
-      .take(Math.max(limit, 200));
-    const filtered = fetches
-      .filter((fetchDoc) => {
-        if (args.startFetchedAtUtc !== undefined && fetchDoc.fetchedAtUtc < args.startFetchedAtUtc) {
-          return false;
+      .withIndex("by_source_fetchedAt", (q) => {
+        let builder: any = q.eq("source", SOURCE);
+        if (args.startFetchedAtUtc !== undefined) {
+          builder = builder.gte("fetchedAtUtc", args.startFetchedAtUtc);
         }
-        if (args.endFetchedAtUtc !== undefined && fetchDoc.fetchedAtUtc > args.endFetchedAtUtc) {
-          return false;
+        if (args.endFetchedAtUtc !== undefined) {
+          builder = builder.lte("fetchedAtUtc", args.endFetchedAtUtc);
         }
-        return true;
+        return builder;
       })
-      .slice(0, limit);
+      .order("desc")
+      .take(limit);
     return {
       source: SOURCE,
-      count: filtered.length,
-      fetches: filtered.map(fetchSummary),
+      count: fetches.length,
+      fetches: fetches.map(fetchSummary),
     };
   },
 });
@@ -796,17 +819,20 @@ export const compareWeatherRuns = query({
     const fetchLimit = boundedInteger(args.fetchLimit, 12, 1, 48);
     const candidateFetches = await ctx.db
       .query("weatherFetches")
-      .withIndex("by_source_fetchedAt", (q) => q.eq("source", SOURCE))
+      .withIndex("by_source_fetchedAt", (q) => {
+        let builder: any = q.eq("source", SOURCE);
+        if (args.startFetchedAtUtc !== undefined) {
+          builder = builder.gte("fetchedAtUtc", args.startFetchedAtUtc);
+        }
+        if (args.endFetchedAtUtc !== undefined) {
+          builder = builder.lte("fetchedAtUtc", args.endFetchedAtUtc);
+        }
+        return builder;
+      })
       .order("desc")
       .take(Math.max(fetchLimit, 100));
     const fetches = candidateFetches
       .filter((fetchDoc) => {
-        if (args.startFetchedAtUtc !== undefined && fetchDoc.fetchedAtUtc < args.startFetchedAtUtc) {
-          return false;
-        }
-        if (args.endFetchedAtUtc !== undefined && fetchDoc.fetchedAtUtc > args.endFetchedAtUtc) {
-          return false;
-        }
         if (fetchDoc.firstTimestamp !== undefined && args.timestamp < fetchDoc.firstTimestamp) {
           return false;
         }

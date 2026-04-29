@@ -284,7 +284,6 @@ def normalize_result_row(asset: dict[str, Any], sheet_name: str | None, row_numb
         "pubTime": parse_local_timestamp(row.get("PUB_TIME")),
         "version": number_value(row.get("VER")),
         "sheetName": sheet_name,
-        "row": row,
     }
     normalized["rowHash"] = stable_hash({"sourceFile": source_file, "rowNumber": row_number, "row": row})
     return {key: value for key, value in normalized.items() if value is not None}
@@ -309,7 +308,6 @@ def normalize_curve_row(asset: dict[str, Any], sheet_name: str | None, row_numbe
         "pubTime": parse_local_timestamp(row.get("PUB_TIME")),
         "version": number_value(row.get("VER")),
         "sheetName": sheet_name,
-        "row": row,
     }
     normalized["rowHash"] = stable_hash({"sourceFile": source_file, "rowNumber": row_number, "row": row})
     return {key: value for key, value in normalized.items() if value is not None}
@@ -409,6 +407,7 @@ def main() -> int:
         assets = assets[: args.limit_files]
     run_id = f"dam-seed-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run = empty_run_record(run_id, args, "running")
+    touched_dates: set[str] = set()
 
     if not args.dry_run:
         convex_run(args, "dam:recordDamIngestRun", run)
@@ -424,6 +423,7 @@ def main() -> int:
 
         run["filesParsed"] += 1
         run["rowsParsed"] += len(parsed.rows)
+        touched_dates.add(parsed.file_record["marketDate"])
         if not args.quiet:
             print(f"parsed {parsed.file_record['filename']}: {len(parsed.rows)} rows")
 
@@ -439,6 +439,10 @@ def main() -> int:
             result = convex_run(args, mutation, {"rows": batch})
             run["rowsInserted"] += int(result.get("inserted", 0))
             run["rowsSkipped"] += int(result.get("skipped", 0))
+
+    if not args.dry_run:
+        for market_date in sorted(touched_dates):
+            convex_run(args, "dam:recomputeDamDailySummary", {"marketDate": market_date})
 
     run["completedAtUtc"] = utc_now_iso()
     run["status"] = "completed" if run["failedFiles"] == 0 else "completed_with_errors"

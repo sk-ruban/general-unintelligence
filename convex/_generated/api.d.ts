@@ -10,10 +10,14 @@
 
 import type * as crons from "../crons.js";
 import type * as dam from "../dam.js";
+import type * as damSummary from "../damSummary.js";
 import type * as eex from "../eex.js";
 import type * as http from "../http.js";
+import type * as httpShared from "../httpShared.js";
 import type * as iceTtf from "../iceTtf.js";
+import type * as maintenance from "../maintenance.js";
 import type * as openMeteo from "../openMeteo.js";
+import type * as userState from "../userState.js";
 
 import type {
   ApiFromModules,
@@ -24,10 +28,14 @@ import type {
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   dam: typeof dam;
+  damSummary: typeof damSummary;
   eex: typeof eex;
   http: typeof http;
+  httpShared: typeof httpShared;
   iceTtf: typeof iceTtf;
+  maintenance: typeof maintenance;
   openMeteo: typeof openMeteo;
+  userState: typeof userState;
 }>;
 
 /**

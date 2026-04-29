@@ -63,7 +63,16 @@ export default defineSchema({
     intradayPointCount: v.number(),
     historicalPointCount: v.number(),
     health: v.any(),
-  }).index("by_source_fetchedAt", ["source", "fetchedAtUtc"]),
+  })
+    .index("by_source_fetchedAt", ["source", "fetchedAtUtc"])
+    .index("by_compatible_fetch", [
+      "source",
+      "contractSelection",
+      "requestedMarketId",
+      "historicalSpan",
+      "efficiency",
+      "fetchedAtUtc",
+    ]),
 
   ttfContracts: defineTable({
     fetchId: v.id("ttfFetches"),
@@ -225,7 +234,7 @@ export default defineSchema({
     version: v.optional(v.number()),
     sheetName: v.optional(v.string()),
     rowHash: v.string(),
-    row: v.any(),
+    row: v.optional(v.any()),
   })
     .index("by_date_mtu", ["marketDate", "mtu"])
     .index("by_date", ["marketDate"])
@@ -249,11 +258,36 @@ export default defineSchema({
     version: v.optional(v.number()),
     sheetName: v.optional(v.string()),
     rowHash: v.string(),
-    row: v.any(),
+    row: v.optional(v.any()),
   })
     .index("by_date_mtu", ["marketDate", "mtu"])
     .index("by_date", ["marketDate"])
     .index("by_file", ["sourceFile"])
     .index("by_row_hash", ["rowHash"])
     .index("by_date_side", ["marketDate", "side"]),
+
+  damRawRows: defineTable({
+    rowHash: v.string(),
+    sourceCode: v.string(),
+    sourceFile: v.string(),
+    marketDate: v.string(),
+    row: v.any(),
+  })
+    .index("by_row_hash", ["rowHash"])
+    .index("by_date", ["marketDate"]),
+
+  damDailySummaries: defineTable({
+    marketDate: v.string(),
+    generatedAtUtc: v.string(),
+    source: v.string(),
+    timezone: v.string(),
+    coverage: v.any(),
+    priceSeries: v.any(),
+    spreadSummary: v.any(),
+    volumeSeries: v.any(),
+    curveFragility: v.any(),
+    fileCount: v.number(),
+    marketRowCount: v.number(),
+    curveRowCount: v.number(),
+  }).index("by_date", ["marketDate"]),
 });

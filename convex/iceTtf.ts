@@ -180,36 +180,70 @@ async function compatibleFetch(
   historicalSpan: string,
   efficiency: number,
 ) {
+  if (requestedMarketId === undefined) {
+    const recent = await ctx.db
+      .query("ttfFetches")
+      .withIndex("by_source_fetchedAt", (q: any) => q.eq("source", SOURCE))
+      .order("desc")
+      .take(100);
+    return recent.find(
+      (fetchDoc: any) =>
+        fetchDoc.contractSelection === contractSelection &&
+        fetchDoc.requestedMarketId === requestedMarketId &&
+        fetchDoc.historicalSpan === historicalSpan &&
+        fetchDoc.efficiency === efficiency,
+    );
+  }
   const recent = await ctx.db
     .query("ttfFetches")
-    .withIndex("by_source_fetchedAt", (q: any) => q.eq("source", SOURCE))
+    .withIndex("by_compatible_fetch", (q: any) =>
+      q
+        .eq("source", SOURCE)
+        .eq("contractSelection", contractSelection)
+        .eq("requestedMarketId", requestedMarketId)
+        .eq("historicalSpan", historicalSpan)
+        .eq("efficiency", efficiency),
+    )
     .order("desc")
-    .take(100);
-  return recent.find(
-    (fetchDoc: any) =>
-      fetchDoc.contractSelection === contractSelection &&
-      fetchDoc.requestedMarketId === requestedMarketId &&
-      fetchDoc.historicalSpan === historicalSpan &&
-      fetchDoc.efficiency === efficiency,
-  );
+    .first();
+  return recent;
 }
 
-async function dataForFetch(ctx: { db: any }, fetchDoc: any) {
-  const contracts = await ctx.db
-    .query("ttfContracts")
-    .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
-    .first();
-  const intraday = await ctx.db
-    .query("ttfIntradayBars")
-    .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
-    .first();
-  const historical = await ctx.db
-    .query("ttfHistoricalBars")
-    .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
-    .first();
-  const selectedContract = contracts?.rows?.find(
-    (contract: Contract) => contract.marketId === fetchDoc.selectedMarketId,
-  );
+async function dataForFetch(
+  ctx: { db: any },
+  fetchDoc: any,
+  includes: { contracts?: boolean; intraday?: boolean; historical?: boolean } = {
+    contracts: true,
+    intraday: true,
+    historical: true,
+  },
+) {
+  const [contracts, intraday, historical] = await Promise.all([
+    includes.contracts
+      ? ctx.db
+          .query("ttfContracts")
+          .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+          .first()
+      : null,
+    includes.intraday
+      ? ctx.db
+          .query("ttfIntradayBars")
+          .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+          .first()
+      : null,
+    includes.historical
+      ? ctx.db
+          .query("ttfHistoricalBars")
+          .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+          .first()
+      : null,
+  ]);
+  const selectedContract =
+    contracts?.rows?.find((contract: Contract) => contract.marketId === fetchDoc.selectedMarketId) ?? {
+      marketId: fetchDoc.selectedMarketId,
+      marketStrip: fetchDoc.selectedMarketStrip,
+      lastPrice: fetchDoc.priceEurPerMwhGas,
+    };
 
   return {
     fetch: fetchDoc,
@@ -221,9 +255,9 @@ async function dataForFetch(ctx: { db: any }, fetchDoc: any) {
       unit: "EUR/MWh gas",
     },
     selectedContract,
-    contracts: contracts?.rows ?? [],
-    intradayBars: intraday?.rows ?? [],
-    historicalBars: historical?.rows ?? [],
+    contracts: includes.contracts ? (contracts?.rows ?? []) : undefined,
+    intradayBars: includes.intraday ? (intraday?.rows ?? []) : undefined,
+    historicalBars: includes.historical ? (historical?.rows ?? []) : undefined,
     thermalProxy: {
       efficiency: fetchDoc.efficiency,
       fuelCostEurPerMwhElectric: fetchDoc.fuelCostEurPerMwhElectric,
@@ -268,7 +302,11 @@ export const getTtfByFetchId = query({
     if (!fetchDoc) {
       return null;
     }
-    const data = await dataForFetch(ctx, fetchDoc);
+    const data = await dataForFetch(ctx, fetchDoc, {
+      contracts: args.includeContracts ?? false,
+      intraday: args.includeIntraday ?? false,
+      historical: args.includeHistorical ?? false,
+    });
     return {
       fetch: data.fetch,
       instrument: data.instrument,
@@ -299,7 +337,7 @@ export const getContracts = query({
     if (!fetchDoc) {
       return null;
     }
-    const data = await dataForFetch(ctx, fetchDoc);
+    const data = await dataForFetch(ctx, fetchDoc, { contracts: true, intraday: false, historical: false });
     return {
       fetch: data.fetch,
       instrument: data.instrument,
@@ -318,7 +356,7 @@ export const getIntraday = query({
     if (!fetchDoc) {
       return null;
     }
-    const data = await dataForFetch(ctx, fetchDoc);
+    const data = await dataForFetch(ctx, fetchDoc, { contracts: false, intraday: true, historical: false });
     return {
       fetch: data.fetch,
       instrument: data.instrument,
@@ -337,7 +375,7 @@ export const getHistorical = query({
     if (!fetchDoc) {
       return null;
     }
-    const data = await dataForFetch(ctx, fetchDoc);
+    const data = await dataForFetch(ctx, fetchDoc, { contracts: false, intraday: false, historical: true });
     return {
       fetch: data.fetch,
       instrument: data.instrument,
