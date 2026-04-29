@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Parse and summarize without calling Convex.")
     parser.add_argument("--push", action="store_true", help="Push Convex code before the first Convex run call.")
     parser.add_argument("--prod", action="store_true", help="Pass --prod to convex run.")
+    parser.add_argument("--deployment", help="Pass --deployment to convex run, e.g. first-axolotl-94.")
     parser.add_argument(
         "--convex-command",
         default="npx convex",
@@ -357,6 +358,8 @@ def convex_run(args: argparse.Namespace, function_name: str, payload: dict[str, 
         command.append("--push")
     if args.prod:
         command.append("--prod")
+    if args.deployment:
+        command.extend(["--deployment", args.deployment])
     command.extend([function_name, json.dumps(payload, separators=(",", ":"), ensure_ascii=False)])
     result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
     if result.returncode != 0:
