@@ -1,0 +1,12 @@
+{
+  "generated_at_utc": "2026-04-29T10:48:35.247731Z",
+  "price_files": 1,
+  "curve_files": 1,
+  "price_rows": 96,
+  "curve_rows": 910,
+  "first_market_date": "2026-04-29",
+  "last_market_date": "2026-04-29",
+  "curve_market_dates": [
+    "2026-04-29"
+  ]
+}
