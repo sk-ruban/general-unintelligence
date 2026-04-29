@@ -11,7 +11,14 @@ __pycache__/
 # Node / Next.js
 node_modules/
 .next/
+.vercel/
 *.tsbuildinfo
+convex/_generated/
+
+# Test and browser automation output
+coverage/
+playwright-report/
+test-results/
 
 # Local data and generated storage artifacts
 data/raw/*
