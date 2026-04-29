@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated source codes to seed. Phase 1 supports Results,AggrCurves.",
     )
     parser.add_argument("--batch-size", type=int, default=100, help="Rows per Convex mutation call.")
+    parser.add_argument("--file-batch-size", type=int, default=100, help="File records per Convex mutation call.")
+    parser.add_argument("--summary-batch-size", type=int, default=25, help="Market dates per summary recompute mutation call.")
     parser.add_argument("--limit-files", type=int, help="Stop after N matching files, useful for smoke tests.")
     parser.add_argument("--dry-run", action="store_true", help="Parse and summarize without calling Convex.")
     parser.add_argument("--push", action="store_true", help="Push Convex code before the first Convex run call.")
@@ -72,6 +74,10 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.batch_size < 1 or args.batch_size > 500:
         parser.error("--batch-size must be between 1 and 500")
+    if args.file_batch_size < 1 or args.file_batch_size > 500:
+        parser.error("--file-batch-size must be between 1 and 500")
+    if args.summary_batch_size < 1 or args.summary_batch_size > 50:
+        parser.error("--summary-batch-size must be between 1 and 50")
     return args
 
 
@@ -380,12 +386,10 @@ def convex_run(args: argparse.Namespace, function_name: str, payload: dict[str, 
 
 
 def empty_run_record(run_id: str, args: argparse.Namespace, status: str) -> dict[str, Any]:
-    return {
+    record = {
         "runId": run_id,
         "startedAtUtc": utc_now_iso(),
         "sources": sorted(source_list(args.sources)),
-        "fromDate": args.from_date,
-        "toDate": args.to_date,
         "dryRun": bool(args.dry_run),
         "status": status,
         "filesParsed": 0,
@@ -397,6 +401,11 @@ def empty_run_record(run_id: str, args: argparse.Namespace, status: str) -> dict
         "failedFiles": 0,
         "errors": [],
     }
+    if args.from_date is not None:
+        record["fromDate"] = args.from_date
+    if args.to_date is not None:
+        record["toDate"] = args.to_date
+    return record
 
 
 def main() -> int:
@@ -411,6 +420,7 @@ def main() -> int:
     run_id = f"dam-seed-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
     run = empty_run_record(run_id, args, "running")
     touched_dates: set[str] = set()
+    pending_files: list[dict[str, Any]] = []
 
     if not args.dry_run:
         convex_run(args, "dam:recordDamIngestRun", run)
@@ -433,9 +443,12 @@ def main() -> int:
         if args.dry_run:
             continue
 
-        file_result = convex_run(args, "dam:storeDamFileBatch", {"files": [parsed.file_record]})
-        run["filesInserted"] += int(file_result.get("inserted", 0))
-        run["filesSkipped"] += int(file_result.get("skipped", 0))
+        pending_files.append(parsed.file_record)
+        if len(pending_files) >= args.file_batch_size:
+            file_result = convex_run(args, "dam:storeDamFileBatch", {"files": pending_files})
+            run["filesInserted"] += int(file_result.get("inserted", 0))
+            run["filesSkipped"] += int(file_result.get("skipped", 0))
+            pending_files = []
 
         mutation = SOURCE_MUTATIONS[parsed.source_code]
         for batch in chunks(parsed.rows, args.batch_size):
@@ -443,9 +456,14 @@ def main() -> int:
             run["rowsInserted"] += int(result.get("inserted", 0))
             run["rowsSkipped"] += int(result.get("skipped", 0))
 
+    if not args.dry_run and pending_files:
+        file_result = convex_run(args, "dam:storeDamFileBatch", {"files": pending_files})
+        run["filesInserted"] += int(file_result.get("inserted", 0))
+        run["filesSkipped"] += int(file_result.get("skipped", 0))
+
     if not args.dry_run:
-        for market_date in sorted(touched_dates):
-            convex_run(args, "dam:recomputeDamDailySummary", {"marketDate": market_date})
+        for batch in chunks([{"marketDate": market_date} for market_date in sorted(touched_dates)], args.summary_batch_size):
+            convex_run(args, "dam:recomputeDamDailySummaries", {"marketDates": [item["marketDate"] for item in batch]})
 
     run["completedAtUtc"] = utc_now_iso()
     run["status"] = "completed" if run["failedFiles"] == 0 else "completed_with_errors"

@@ -358,6 +358,42 @@ async function dailySummaryForDate(ctx: { db: any }, marketDate: string) {
     .first();
 }
 
+async function writeDamDailySummary(ctx: { db: any }, marketDate: string) {
+  const files = await filesForRange(ctx, { from: marketDate, to: marketDate, limit: 500 });
+  const marketRows = await marketResultsForDates(ctx, [marketDate], { limit: MAX_ROW_LIMIT });
+  const curveRows = await curveRowsForDates(ctx, [marketDate], { limit: MAX_CURVE_ROWS_FOR_SUMMARY });
+  const priceSeries = priceSeriesFromMarketResults(marketRows, 2_000);
+  const volumeSeries = priceSeries.map((point) => ({
+    marketDate: point.marketDate,
+    timestamp: point.timestamp,
+    mtu: point.mtu,
+    buyVolume: Number(point.buyVolume.toFixed(3)),
+    sellVolume: Number(point.sellVolume.toFixed(3)),
+    totalTrades: Number(point.totalTrades.toFixed(3)),
+  }));
+  const summary = {
+    marketDate,
+    generatedAtUtc: new Date().toISOString(),
+    source: SOURCE,
+    timezone: TIMEZONE,
+    coverage: coverageFromFiles(files),
+    priceSeries,
+    spreadSummary: summarizePrices(priceSeries),
+    volumeSeries,
+    curveFragility: curveFragility(curveRows, priceSeries),
+    fileCount: files.length,
+    marketRowCount: marketRows.length,
+    curveRowCount: curveRows.length,
+  };
+  const existing = await dailySummaryForDate(ctx, marketDate);
+  if (existing) {
+    await ctx.db.patch(existing._id, summary);
+    return { id: existing._id, updated: true };
+  }
+  const id = await ctx.db.insert("damDailySummaries", summary);
+  return { id, updated: false };
+}
+
 async function summariesForDates(ctx: { db: any }, dates: string[]) {
   const summaries = [];
   for (const marketDate of dates) {
@@ -488,39 +524,21 @@ export const recomputeDamDailySummary = mutation({
   },
   handler: async (ctx, args) => {
     const marketDate = requireDateKey(args.marketDate, "marketDate");
-    const files = await filesForRange(ctx, { from: marketDate, to: marketDate, limit: 500 });
-    const marketRows = await marketResultsForDates(ctx, [marketDate], { limit: MAX_ROW_LIMIT });
-    const curveRows = await curveRowsForDates(ctx, [marketDate], { limit: MAX_CURVE_ROWS_FOR_SUMMARY });
-    const priceSeries = priceSeriesFromMarketResults(marketRows, 2_000);
-    const volumeSeries = priceSeries.map((point) => ({
-      marketDate: point.marketDate,
-      timestamp: point.timestamp,
-      mtu: point.mtu,
-      buyVolume: Number(point.buyVolume.toFixed(3)),
-      sellVolume: Number(point.sellVolume.toFixed(3)),
-      totalTrades: Number(point.totalTrades.toFixed(3)),
-    }));
-    const summary = {
-      marketDate,
-      generatedAtUtc: new Date().toISOString(),
-      source: SOURCE,
-      timezone: TIMEZONE,
-      coverage: coverageFromFiles(files),
-      priceSeries,
-      spreadSummary: summarizePrices(priceSeries),
-      volumeSeries,
-      curveFragility: curveFragility(curveRows, priceSeries),
-      fileCount: files.length,
-      marketRowCount: marketRows.length,
-      curveRowCount: curveRows.length,
-    };
-    const existing = await dailySummaryForDate(ctx, marketDate);
-    if (existing) {
-      await ctx.db.patch(existing._id, summary);
-      return { id: existing._id, updated: true };
+    return await writeDamDailySummary(ctx, marketDate);
+  },
+});
+
+export const recomputeDamDailySummaries = mutation({
+  args: {
+    marketDates: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const results = [];
+    for (const value of args.marketDates.slice(0, 50)) {
+      const marketDate = requireDateKey(value, "marketDate");
+      results.push(await writeDamDailySummary(ctx, marketDate));
     }
-    const id = await ctx.db.insert("damDailySummaries", summary);
-    return { id, updated: false };
+    return { count: results.length, results };
   },
 });
 
