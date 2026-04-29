@@ -21,6 +21,14 @@ SOURCE_PAGE = "https://www.enexgroup.gr/web/guest/markets-publications-el-day-ah
 OUTPUT_ROOT = Path("data/dam")
 USER_AGENT = "odyceo-hackathon-dam-puller/1.0"
 ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
+SPECIAL_FOLDERS = {
+    "AggrCurves": Path("aggr_curves"),
+    "BLKORDRs": Path("blkordrs"),
+    "POSNOMs": Path("posno_ms"),
+    "PreMarketSummary": Path("pre_market_summary"),
+    "PrelimResults": Path("prelim_results"),
+    "ResultsSummary": Path("results_summary"),
+}
 
 
 @dataclass(frozen=True)
@@ -108,6 +116,8 @@ def clean_text(value: str) -> str:
 
 
 def folder_name(code: str) -> Path:
+    if code in SPECIAL_FOLDERS:
+        return SPECIAL_FOLDERS[code]
     words = re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?=[A-Z]|$)|\d+", code)
     slug = "_".join(word.lower() for word in words)
     return Path(slug or code.lower())
@@ -229,9 +239,13 @@ def download_asset(source: Source, filename: str, url: str) -> Asset:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / filename
 
-    data = request_bytes(url)
-    validate_payload(filename, data)
-    output_path.write_bytes(data)
+    if output_path.exists():
+        data = output_path.read_bytes()
+        validate_payload(filename, data)
+    else:
+        data = request_bytes(url)
+        validate_payload(filename, data)
+        output_path.write_bytes(data)
 
     return Asset(
         source_code=source.code,
@@ -250,10 +264,11 @@ def discover_documentation(main_html: str) -> list[tuple[str, str]]:
     docs: dict[str, str] = {}
     for link in parse_links(main_html):
         text = clean_text(link.get("text", ""))
-        href = urllib.parse.unquote(link.get("href", "").replace("&amp;", "&"))
-        if "EL-DAM" not in text or "Documentation" not in href or not href.endswith(".pdf"):
+        href = link.get("href", "").replace("&amp;", "&")
+        decoded_path = urllib.parse.unquote(urllib.parse.urlparse(href).path)
+        if "EL-DAM" not in text or "Documentation" not in decoded_path or not decoded_path.endswith(".pdf"):
             continue
-        filename = Path(urllib.parse.urlparse(href).path).name
+        filename = Path(decoded_path).name
         docs[filename] = urllib.parse.urljoin(SOURCE_PAGE, href)
     return sorted(docs.items())
 
@@ -262,9 +277,13 @@ def download_documentation(filename: str, url: str) -> dict[str, str | int]:
     output_dir = OUTPUT_ROOT / "documentation"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / filename
-    data = request_bytes(url)
-    validate_payload(filename, data)
-    output_path.write_bytes(data)
+    if output_path.exists():
+        data = output_path.read_bytes()
+        validate_payload(filename, data)
+    else:
+        data = request_bytes(url)
+        validate_payload(filename, data)
+        output_path.write_bytes(data)
     return {
         "filename": filename,
         "url": url,
@@ -315,7 +334,7 @@ def main() -> None:
 
     for source in sources:
         file_links = discover_source_assets(source)
-        print(f"{source.code}: {len(file_links)} files across {source.page_count} pages")
+        print(f"{source.code}: {len(file_links)} files across {source.page_count} pages", flush=True)
         for filename, url in file_links:
             assets.append(download_asset(source, filename, url))
 
@@ -324,7 +343,7 @@ def main() -> None:
         docs.append(download_documentation(filename, url))
 
     write_manifests(sources, assets, docs)
-    print(f"Downloaded {len(assets)} data files and {len(docs)} documentation files into {OUTPUT_ROOT}")
+    print(f"Downloaded {len(assets)} data files and {len(docs)} documentation files into {OUTPUT_ROOT}", flush=True)
 
 
 if __name__ == "__main__":
