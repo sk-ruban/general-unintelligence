@@ -45,7 +45,7 @@ import { loadExternalSignals } from "@/lib/convex-signals";
 import { getCurveDataClient } from "@/lib/curve-data/client";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import { getMarketDataClient } from "@/lib/market-data/client";
-import type { PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
+import type { GridFlow, GridNode, PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
 import { buildPortfolioState } from "@/lib/portfolio";
 import {
   dayRangeForPriceWindow,
@@ -94,7 +94,7 @@ const nav: {
   icon: ComponentType<{ className?: string }>;
 }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
-  { id: "portfolio", label: "Portfolio Map", icon: MapIcon },
+  { id: "portfolio", label: "Grid Flow", icon: MapIcon },
   { id: "market", label: "Market Intelligence", icon: Activity },
   { id: "curves", label: "Market Curves", icon: Layers },
   { id: "signals", label: "Weather & Gas", icon: CloudSun },
@@ -119,6 +119,7 @@ export function CockpitClient() {
   const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
   const [signals, setSignals] = useState<ExternalSignalPanel[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState("kozani-north");
+  const [selectedGridNodeId, setSelectedGridNodeId] = useState("battery-kozani-north");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [twin, setTwin] = useState<BatteryTwinConfig>(defaultBatteryTwin);
 
@@ -230,8 +231,25 @@ export function CockpitClient() {
   const curveStats = useMemo(() => summarizeCurves(curves), [curves]);
   const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);
   const portfolio = useMemo(() => buildPortfolioState(prices), [prices]);
-  const selectedSite =
-    portfolio.sites.find((site) => site.id === selectedSiteId) ?? portfolio.sites[0] ?? null;
+  const selectedGridNode =
+    portfolio.grid.nodes.find((node) => node.id === selectedGridNodeId) ??
+    portfolio.grid.nodes.find((node) => node.siteId === selectedSiteId) ??
+    null;
+  const selectedGridSite = selectedGridNode?.siteId
+    ? (portfolio.sites.find((site) => site.id === selectedGridNode.siteId) ?? null)
+    : null;
+  const showRightRail = view !== "portfolio";
+  const selectSite = (siteId: string) => {
+    setSelectedSiteId(siteId);
+    setSelectedGridNodeId(`battery-${siteId}`);
+  };
+  const selectGridNode = (nodeId: string) => {
+    setSelectedGridNodeId(nodeId);
+    const node = portfolio.grid.nodes.find((candidate) => candidate.id === nodeId);
+    if (node?.siteId) {
+      setSelectedSiteId(node.siteId);
+    }
+  };
 
   return (
     <main className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)]">
@@ -248,7 +266,11 @@ export function CockpitClient() {
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           <TopBar selectedDay={selectedDay} />
           <PanelGroup direction="horizontal" className="min-h-0 flex-1">
-            <ResizePanel className="min-h-0 overflow-hidden" defaultSize={76} minSize={54}>
+            <ResizePanel
+              className="min-h-0 overflow-hidden"
+              defaultSize={showRightRail ? 76 : 100}
+              minSize={showRightRail ? 54 : 100}
+            >
               <main className="dense-scrollbar flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto p-4">
                 {view === "control" ? (
                   <ControlRoom
@@ -274,10 +296,12 @@ export function CockpitClient() {
                   <PortfolioView
                     gridFlows={portfolio.grid.flows}
                     gridNodes={portfolio.grid.nodes}
-                    selectedSite={selectedSite}
-                    selectedSiteId={selectedSite?.id ?? selectedSiteId}
+                    selectedNode={selectedGridNode}
+                    selectedGridSite={selectedGridSite}
+                    selectedNodeId={selectedGridNode?.id ?? null}
                     sites={portfolio.sites}
-                    onSelectSite={setSelectedSiteId}
+                    onSelectNode={selectGridNode}
+                    onSelectSite={selectSite}
                   />
                 ) : null}
                 {view === "market" ? (
@@ -315,17 +339,21 @@ export function CockpitClient() {
                 ) : null}
               </main>
             </ResizePanel>
-            <PanelResizeHandle className="w-px bg-white/10 transition hover:bg-cyan-300/60 data-[resize-handle-active]:bg-cyan-300/70" />
-            <ResizePanel
-              className="min-h-0 overflow-hidden transition-[flex-basis] duration-200 ease-out"
-              defaultSize={24}
-              minSize={22}
-              maxSize={32}
-              collapsible
-              collapsedSize={0}
-            >
-              <RightRail dispatch={dispatch} summary={summary} signals={signals} twin={twin} />
-            </ResizePanel>
+            {showRightRail ? (
+              <>
+                <PanelResizeHandle className="w-px bg-white/10 transition hover:bg-cyan-300/60 data-[resize-handle-active]:bg-cyan-300/70" />
+                <ResizePanel
+                  className="min-h-0 overflow-hidden transition-[flex-basis] duration-200 ease-out"
+                  defaultSize={24}
+                  minSize={22}
+                  maxSize={32}
+                  collapsible
+                  collapsedSize={0}
+                >
+                  <RightRail dispatch={dispatch} summary={summary} signals={signals} twin={twin} />
+                </ResizePanel>
+              </>
+            ) : null}
           </PanelGroup>
         </section>
         <CommandPalette open={paletteOpen} setOpen={setPaletteOpen} setView={setView} />
@@ -692,15 +720,19 @@ function PortfolioView({
   gridFlows,
   gridNodes,
   sites,
-  selectedSite,
-  selectedSiteId,
+  selectedGridSite,
+  selectedNode,
+  selectedNodeId,
+  onSelectNode,
   onSelectSite,
 }: {
   gridFlows: ReturnType<typeof buildPortfolioState>["grid"]["flows"];
   gridNodes: ReturnType<typeof buildPortfolioState>["grid"]["nodes"];
   sites: PortfolioSiteState[];
-  selectedSite: PortfolioSiteState | null;
-  selectedSiteId: string;
+  selectedGridSite: PortfolioSiteState | null;
+  selectedNode: GridNode | null;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
   onSelectSite: (siteId: string) => void;
 }) {
   return (
@@ -711,12 +743,11 @@ function PortfolioView({
           <GridFlowMap
             flows={gridFlows}
             nodes={gridNodes}
-            selectedSiteId={selectedSiteId}
-            sites={sites}
-            onSelectSite={onSelectSite}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={onSelectNode}
           />
         </Panel>
-        <SiteDetailPanel site={selectedSite} />
+        <GridDetailPanel flows={gridFlows} node={selectedNode} nodes={gridNodes} site={selectedGridSite} />
       </div>
       <Panel>
         <PanelHeader title="Site Tape" kicker="Fleet state by asset" />
@@ -737,7 +768,7 @@ function PortfolioView({
                 <tr
                   key={site.id}
                   className={`cursor-pointer border-white/5 border-t transition hover:bg-white/[0.04] ${
-                    selectedSiteId === site.id ? "bg-cyan-300/[0.06]" : ""
+                    selectedGridSite?.id === site.id ? "bg-cyan-300/[0.06]" : ""
                   }`}
                   onClick={() => onSelectSite(site.id)}
                 >
@@ -759,12 +790,62 @@ function PortfolioView({
   );
 }
 
-function SiteDetailPanel({ site }: { site: PortfolioSiteState | null }) {
+function GridDetailPanel({
+  flows,
+  node,
+  nodes,
+  site,
+}: {
+  flows: GridFlow[];
+  node: GridNode | null;
+  nodes: GridNode[];
+  site: PortfolioSiteState | null;
+}) {
+  if (node && !site) {
+    const detailCopy = gridNodeDetailCopy(node);
+    const connectedFlows = connectedGridFlows(node, flows, nodes);
+    return (
+      <Panel>
+        <PanelHeader title={node.name} kicker={`${gridNodeKindLabel(node.kind)} · ${node.region}`} />
+        <div className="grid gap-3 p-3">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+            <DetailMetric label="Asset Type" value={gridNodeKindLabel(node.kind)} detail={node.detail} />
+            <DetailMetric label={detailCopy.powerLabel} value={formatMw(node.mw)} detail={detailCopy.powerDetail} />
+            <DetailMetric label={detailCopy.regionLabel} value={node.region} detail={detailCopy.regionDetail} />
+            <DetailMetric
+              label="Coordinates"
+              value={`${node.latitude.toFixed(2)}, ${node.longitude.toFixed(2)}`}
+              detail="Approximate demo location"
+            />
+          </div>
+          {connectedFlows.length > 0 ? (
+            <div className="grid gap-2 border border-white/10 bg-black/25 p-3 text-[11px]">
+              <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">
+                Connected Flows
+              </div>
+              {connectedFlows.map((flow) => (
+                <div
+                  key={flow.id}
+                  className="grid grid-cols-[3.5rem_1fr_auto] items-center gap-2 border-white/10 border-t pt-2 first:border-t-0 first:pt-0"
+                >
+                  <span className="mono text-zinc-500 uppercase">{flow.direction}</span>
+                  <span className="truncate text-zinc-300">{flow.counterparty}</span>
+                  <span className="mono text-zinc-100">{formatMw(flow.mw)}</span>
+                  <span className="col-span-3 truncate text-zinc-500">{flow.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </Panel>
+    );
+  }
+
   if (!site) {
     return (
       <Panel>
-        <PanelHeader title="Site Detail" kicker="No site selected" />
-        <div className="p-3 text-[12px] text-zinc-500">Portfolio data is loading.</div>
+        <PanelHeader title="Grid Asset Detail" kicker="No node selected" />
+        <div className="p-3 text-[12px] text-zinc-500">Click a marker on the grid map.</div>
       </Panel>
     );
   }
@@ -821,6 +902,83 @@ function SiteDetailPanel({ site }: { site: PortfolioSiteState | null }) {
       </div>
     </Panel>
   );
+}
+
+function gridNodeKindLabel(kind: GridNode["kind"]) {
+  if (kind === "import") return "Import";
+  if (kind === "load") return "Connection";
+  if (kind === "gas" || kind === "lignite") return "Thermal Plant";
+  if (kind === "hydro") return "Hydro";
+  if (kind === "solar") return "Solar";
+  if (kind === "wind") return "Wind";
+  if (kind === "battery") return "Battery";
+  return "Grid Transfer";
+}
+
+function gridNodeDetailCopy(node: GridNode) {
+  if (node.kind === "import") {
+    return {
+      powerDetail: "Scheduled import flow into the Greek grid",
+      powerLabel: "Import Flow",
+      regionDetail: "Cross-border import pair",
+      regionLabel: "Border Pair",
+    };
+  }
+  if (node.kind === "load") {
+    return {
+      powerDetail: "Urban demand currently supplied by the modelled grid",
+      powerLabel: "Demand Supplied",
+      regionDetail: "Urban connection area",
+      regionLabel: "Connection Area",
+    };
+  }
+  if (node.kind === "gas" || node.kind === "lignite") {
+    return {
+      powerDetail: "Thermal output into the transmission corridor",
+      powerLabel: "Thermal Output",
+      regionDetail: "Plant operating region",
+      regionLabel: "Operating Region",
+    };
+  }
+  if (node.kind === "hydro") {
+    return {
+      powerDetail: "Hydro output routed into the transmission grid",
+      powerLabel: "Hydro Output",
+      regionDetail: "Hydro operating region",
+      regionLabel: "Operating Region",
+    };
+  }
+  if (node.kind === "solar" || node.kind === "wind") {
+    return {
+      powerDetail: "Renewable output routed into the transmission grid",
+      powerLabel: "Renewable Output",
+      regionDetail: "Renewable operating region",
+      regionLabel: "Operating Region",
+    };
+  }
+  return {
+    powerDetail: "Modelled transfer on the grid corridor",
+    powerLabel: "Transfer",
+    regionDetail: "Grid operating region",
+    regionLabel: "Region",
+  };
+}
+
+function connectedGridFlows(node: GridNode, flows: GridFlow[], nodes: GridNode[]) {
+  const nodeNameById = new Map(nodes.map((candidate) => [candidate.id, candidate.name]));
+  return flows
+    .filter((flow) => flow.fromNodeId === node.id || flow.toNodeId === node.id)
+    .map((flow) => {
+      const outgoing = flow.fromNodeId === node.id;
+      const counterpartyId = outgoing ? flow.toNodeId : flow.fromNodeId;
+      return {
+        counterparty: nodeNameById.get(counterpartyId) ?? counterpartyId,
+        direction: outgoing ? "out" : "in",
+        id: flow.id,
+        label: flow.label,
+        mw: flow.mw,
+      };
+    });
 }
 
 function actionTextClass(action: DispatchPoint["action"] | undefined) {

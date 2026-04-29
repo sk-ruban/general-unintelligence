@@ -1,28 +1,25 @@
 "use client";
 
 import { BatteryCharging, Dam, Factory, House, SunMedium, Wind } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { GridFlow, GridFlowKind, GridNode, PortfolioSiteState } from "@/lib/portfolio";
+import { useMemo, useState } from "react";
+import {
+  GRID_MAP_SATELLITE_URL,
+  SATELLITE_ASPECT_HEIGHT,
+  SATELLITE_ASPECT_WIDTH,
+  SATELLITE_BOUNDS,
+} from "@/lib/grid-map";
+import type { GridFlow, GridFlowKind, GridNode } from "@/lib/portfolio";
 
 type GridFlowMapProps = {
   flows: GridFlow[];
   nodes: GridNode[];
-  selectedSiteId: string;
-  sites: PortfolioSiteState[];
-  onSelectSite: (siteId: string) => void;
+  selectedNodeId: string | null;
+  onSelectNode: (nodeId: string) => void;
 };
 
 type MapLayer = "imports" | "batteries" | "renewables" | "thermal" | "load";
 type ProjectedGridNode = GridNode & { visible: boolean; x: number; y: number };
 
-const SATELLITE_BOUNDS = {
-  west: 13.0374,
-  south: 32.8,
-  east: 32.5626,
-  north: 42.8,
-} as const;
-const SATELLITE_ASPECT_WIDTH = 1200;
-const SATELLITE_ASPECT_HEIGHT = 780;
 const MAP_LAYERS: Array<{ id: MapLayer; label: string }> = [
   { id: "imports", label: "Imports" },
   { id: "batteries", label: "Batteries" },
@@ -30,9 +27,13 @@ const MAP_LAYERS: Array<{ id: MapLayer; label: string }> = [
   { id: "thermal", label: "Thermal" },
   { id: "load", label: "Connections" },
 ];
-const SATELLITE_EXPORT_URL = `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${SATELLITE_BOUNDS.west},${SATELLITE_BOUNDS.south},${SATELLITE_BOUNDS.east},${SATELLITE_BOUNDS.north}&bboxSR=4326&imageSR=3857&size=${SATELLITE_ASPECT_WIDTH},${SATELLITE_ASPECT_HEIGHT}&format=jpg&f=image`;
 
-export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite }: GridFlowMapProps) {
+export function GridFlowMap({
+  flows,
+  nodes,
+  selectedNodeId,
+  onSelectNode,
+}: GridFlowMapProps) {
   const [enabledLayers, setEnabledLayers] = useState<Record<MapLayer, boolean>>({
     batteries: true,
     imports: true,
@@ -40,12 +41,6 @@ export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite 
     renewables: true,
     thermal: true,
   });
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const selectedSite = sites.find((site) => site.id === selectedSiteId) ?? null;
-  const selectedNode =
-    nodes.find((node) => node.id === selectedNodeId) ??
-    nodes.find((node) => node.siteId === selectedSiteId) ??
-    null;
   const projectedNodes = useMemo(
     () =>
       nodes.map((node) => ({
@@ -68,13 +63,6 @@ export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite 
     [enabledLayers, flows, projectedNodeById],
   );
 
-  useEffect(() => {
-    const selected = nodes.find((node) => node.siteId === selectedSiteId);
-    if (selected) {
-      setSelectedNodeId(selected.id);
-    }
-  }, [nodes, selectedSiteId]);
-
   return (
     <div className="relative min-h-[620px] overflow-hidden bg-[#030405]">
       <div className="absolute inset-0" style={{ containerType: "size" }}>
@@ -87,7 +75,7 @@ export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite 
         >
           <div
             className="absolute inset-0 bg-center bg-no-repeat opacity-70 saturate-[0.7] contrast-125"
-            style={{ backgroundImage: `url("${SATELLITE_EXPORT_URL}")`, backgroundSize: "100% 100%" }}
+            style={{ backgroundImage: `url("${GRID_MAP_SATELLITE_URL}")`, backgroundSize: "100% 100%" }}
           />
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(3,4,5,0.2),rgba(3,4,5,0.28)),radial-gradient(circle_at_50%_45%,transparent_0,transparent_58%,rgba(5,5,6,0.22)_82%,rgba(5,5,6,0.62)_100%)]" />
           <svg
@@ -113,31 +101,51 @@ export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite 
               <line
                 key={flow.id}
                 stroke={flowColor(flow.kind, flow.fromKind)}
-                strokeDasharray="1.4 0.9"
                 strokeLinecap="round"
-                strokeOpacity="0.84"
-                strokeWidth={flow.width}
+                strokeOpacity="0.52"
+                strokeWidth={Math.max(0.2, flow.width * 0.82)}
                 x1={flow.x1}
                 x2={flow.x2}
                 y1={flow.y1}
                 y2={flow.y2}
               />
             ))}
+            {projectedFlows.map((flow) => (
+              <g key={`${flow.id}-pulse`}>
+                <line
+                  stroke={flowColor(flow.kind, flow.fromKind)}
+                  strokeDasharray="2.6 7.2"
+                  strokeLinecap="round"
+                  strokeOpacity="0.92"
+                  strokeWidth={Math.max(0.44, flow.width * 1.2)}
+                  x1={flow.x1}
+                  x2={flow.x2}
+                  y1={flow.y1}
+                  y2={flow.y2}
+                >
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    dur={`${flowDuration(flow.mw)}s`}
+                    from="0"
+                    repeatCount="indefinite"
+                    to="-9.8"
+                  />
+                </line>
+              </g>
+            ))}
           </svg>
           <div className="absolute inset-0">
             {visibleAssetNodes.map((node) => (
               <button
                 key={node.id}
-                className={`absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center bg-black/80 text-[8px] shadow-[0_0_20px_rgba(0,0,0,0.72)] transition hover:scale-110 ${nodeSizeClass(node)} ${nodeToneClass(node, node.siteId === selectedSiteId)}`}
+                className={`absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center bg-black/80 text-[8px] shadow-[0_0_20px_rgba(0,0,0,0.72)] transition hover:scale-110 ${nodeSizeClass(node)} ${nodeToneClass(
+                  node,
+                  node.id === selectedNodeId,
+                )}`}
                 style={{ left: `${node.x}%`, top: `${node.y}%` }}
                 title={`${node.name} · ${node.detail}`}
                 type="button"
-                onClick={() => {
-                  setSelectedNodeId(node.id);
-                  if (node.siteId) {
-                    onSelectSite(node.siteId);
-                  }
-                }}
+                onClick={() => onSelectNode(node.id)}
               >
                 <NodeGlyph node={node} />
               </button>
@@ -166,32 +174,6 @@ export function GridFlowMap({ flows, nodes, selectedSiteId, sites, onSelectSite 
             {layer.label}
           </button>
         ))}
-      </div>
-      <div className="absolute right-3 bottom-3 grid w-64 gap-2 border border-white/10 bg-black/75 p-3 text-[11px] shadow-2xl">
-        <div>
-          <div className="text-[10px] text-zinc-500 uppercase tracking-[0.08em]">
-            {selectedNode?.kind ?? "node"}
-          </div>
-          <div className="truncate text-zinc-100">
-            {selectedNode?.name ?? selectedSite?.name ?? "Select a node"}
-          </div>
-          <div className="mt-1 text-zinc-500">
-            {selectedNode?.detail ?? "Click a battery, generator, or import node."}
-          </div>
-        </div>
-        {selectedSite && selectedNode?.siteId ? (
-          <div className="grid grid-cols-3 gap-2 border-white/10 border-t pt-2">
-            <MiniDatum label="Action" value={selectedSite.current?.action ?? "idle"} />
-            <MiniDatum label="Power" value={`${selectedSite.current?.mw.toFixed(1) ?? "0"} MW`} />
-            <MiniDatum label="SoC" value={`${Math.round(selectedSite.socPercent)}%`} />
-          </div>
-        ) : selectedNode ? (
-          <div className="grid grid-cols-3 gap-2 border-white/10 border-t pt-2">
-            <MiniDatum label="Type" value={selectedNode.kind} />
-            <MiniDatum label="Output" value={`${Math.round(selectedNode.mw)} MW`} />
-            <MiniDatum label="Region" value={selectedNode.region} />
-          </div>
-        ) : null}
       </div>
       <div className="pointer-events-none absolute bottom-3 left-3 grid grid-cols-2 gap-x-4 gap-y-1 border border-white/10 bg-black/70 p-2 text-[9px] text-zinc-500 uppercase">
         <LegendItem color="#fde047" label="solar" />
@@ -227,15 +209,6 @@ function importFlag(region: string) {
   if (region === "GR-BG") return "🇧🇬";
   if (region === "GR-MK") return "🇲🇰";
   return "⚡";
-}
-
-function MiniDatum({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[9px] text-zinc-500 uppercase">{label}</div>
-      <div className="mono truncate text-zinc-100">{value}</div>
-    </div>
-  );
 }
 
 function LegendItem({ color, label }: { color: string; label: string }) {
@@ -285,6 +258,7 @@ function buildProjectedFlows(
         id: flow.id,
         fromKind: from.kind,
         kind: flow.kind,
+        mw: flow.mw,
         toKind: to.kind,
         width: Math.min(0.7, Math.max(0.18, flow.mw / 900)),
         x1: from.x,
@@ -294,6 +268,10 @@ function buildProjectedFlows(
       },
     ];
   });
+}
+
+function flowDuration(mw: number) {
+  return Math.max(1.4, 3.8 - mw / 260);
 }
 
 function flowColor(kind: GridFlowKind, fromKind?: GridNode["kind"]) {
