@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build static DAM Parquet and JSON assets for the frontend demo."""
+"""Build demo DAM prices and recent AggrCurve Parquet assets for the frontend."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -16,6 +17,27 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "data/dam/manifest.json"
 OUT_DIR = ROOT / "public/data/dam"
+RESULT_COLUMNS = [
+    "BIDDING_ZONE_DESCR",
+    "DELIVERY_MTU",
+    "DELIVERY_DURATION",
+    "SORT",
+    "MCP",
+    "TOTAL_TRADES",
+    "PUB_TIME",
+    "VER",
+]
+CURVE_COLUMNS = [
+    "SIDE_DESCR",
+    "DELIVERY_MTU",
+    "SORT",
+    "DELIVERY_DURATION",
+    "AA",
+    "QUANTITY",
+    "UNITPRICE",
+    "PUB_TIME",
+    "VER",
+]
 
 
 @dataclass(frozen=True)
@@ -32,11 +54,13 @@ class BuildSummary:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--from", dest="from_date", default="2026-04-29")
-    parser.add_argument("--to", dest="to_date", default="2026-04-29")
-    parser.add_argument("--results-max-rows", type=int, default=1200)
-    parser.add_argument("--curve-days", type=int, default=1)
-    parser.add_argument("--curve-max-rows", type=int, default=1200)
+    parser.add_argument("--from", dest="from_date", default=None)
+    parser.add_argument("--to", dest="to_date", default=None)
+    parser.add_argument("--price-days", type=int, default=1)
+    parser.add_argument("--results-max-rows", type=int, default=None)
+    parser.add_argument("--curve-days", type=int, default=7)
+    parser.add_argument("--curve-max-rows", type=int, default=None)
+    parser.add_argument("--json-curve-days", type=int, default=1)
     return parser.parse_args()
 
 
@@ -55,6 +79,13 @@ def selected_assets(source_code: str, from_date: str, to_date: str) -> list[dict
         and str(asset["extension"]) == "xlsx"
     ]
     return sorted(assets, key=lambda asset: (str(asset["market_date"]), str(asset["filename"])))
+
+
+def date_bounds(assets: list[dict[str, object]]) -> tuple[str, str]:
+    dates = sorted(str(asset["market_date"]) for asset in assets if str(asset["extension"]) == "xlsx")
+    if not dates:
+        raise ValueError("No XLSX DAM assets found in manifest")
+    return dates[0], dates[-1]
 
 
 def local_to_utc_series(values: pd.Series) -> pd.Series:
@@ -78,7 +109,7 @@ def number_or_none(value: object) -> float | None:
 
 def parse_results(asset: dict[str, object], max_rows: int | None) -> pd.DataFrame:
     path = ROOT / str(asset["output_path"])
-    raw = pd.read_excel(path, nrows=max_rows)
+    raw = pd.read_excel(path, nrows=max_rows, usecols=RESULT_COLUMNS)
     raw = raw[raw["BIDDING_ZONE_DESCR"].astype(str).eq("Mainland Greece")]
 
     normalized = pd.DataFrame(
@@ -119,7 +150,7 @@ def parse_results(asset: dict[str, object], max_rows: int | None) -> pd.DataFram
 
 def parse_curves(asset: dict[str, object], max_rows: int | None) -> pd.DataFrame:
     path = ROOT / str(asset["output_path"])
-    raw = pd.read_excel(path, nrows=max_rows)
+    raw = pd.read_excel(path, nrows=max_rows, usecols=CURVE_COLUMNS)
     raw = raw[pd.to_numeric(raw["DELIVERY_DURATION"], errors="coerce").eq(15)]
 
     return pd.DataFrame(
@@ -148,21 +179,49 @@ def records_for_json(frame: pd.DataFrame) -> list[dict[str, object]]:
     return records
 
 
+def parse_asset_frames(
+    label: str,
+    assets: list[dict[str, object]],
+    parser: Callable[[dict[str, object], int | None], pd.DataFrame],
+    max_rows: int | None,
+) -> pd.DataFrame:
+    print(f"Parsing {label}: {len(assets)} files", flush=True)
+    frames = []
+    for index, asset in enumerate(assets, start=1):
+        print(f"  [{index}/{len(assets)}] {asset['market_date']} {asset['filename']}", flush=True)
+        frames.append(parser(asset, max_rows))
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
+
+
 def main() -> None:
     warnings.filterwarnings("ignore", message="Workbook contains no default style")
     args = parse_args()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    price_assets = selected_assets("Results", args.from_date, args.to_date)
-    curve_assets = selected_assets("AggrCurves", args.from_date, args.to_date)[-args.curve_days :]
+    manifest_assets = read_manifest()
+    manifest_from_date, manifest_to_date = date_bounds(manifest_assets)
+    from_date = args.from_date or manifest_from_date
+    to_date = args.to_date or manifest_to_date
 
-    prices = pd.concat([parse_results(asset, args.results_max_rows) for asset in price_assets], ignore_index=True)
-    curves = pd.concat([parse_curves(asset, args.curve_max_rows) for asset in curve_assets], ignore_index=True)
+    price_assets = selected_assets("Results", from_date, to_date)
+    if args.price_days is not None:
+        price_assets = price_assets[-args.price_days :]
+    curve_assets = selected_assets("AggrCurves", from_date, to_date)
+    if args.curve_days is not None:
+        curve_assets = curve_assets[-args.curve_days :]
+
+    prices = parse_asset_frames("Results", price_assets, parse_results, args.results_max_rows)
+    curves = parse_asset_frames("AggrCurves", curve_assets, parse_curves, args.curve_max_rows)
 
     prices.to_parquet(OUT_DIR / "dam_prices.parquet", index=False)
     curves.to_parquet(OUT_DIR / "dam_curves.parquet", index=False)
 
-    representative_curve = curves.sort_values(["market_date", "mtu", "side", "curve_order"])
+    json_curve_dates = sorted(str(value) for value in curves["market_date"].dropna().unique())[-args.json_curve_days :]
+    representative_curve = curves[curves["market_date"].isin(json_curve_dates)].sort_values(
+        ["market_date", "mtu", "side", "curve_order"]
+    )
 
     (OUT_DIR / "dam_prices.json").write_text(json.dumps(records_for_json(prices), separators=(",", ":")))
     (OUT_DIR / "dam_curves_sample.json").write_text(

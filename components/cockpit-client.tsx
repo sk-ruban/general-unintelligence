@@ -281,7 +281,11 @@ function ControlRoom({
         </Panel>
         <Panel>
           <PanelHeader title="MTU 01 Curve Depth" kicker={`${curves.length} curve points`} />
-          <CurveChart data={curves} />
+          {curves.length > 0 ? (
+            <CurveChart data={curves} />
+          ) : (
+            <EmptyCurveState selectedDay={prices[0]?.interval.marketDate ?? ""} />
+          )}
         </Panel>
       </div>
       <Panel>
@@ -302,7 +306,7 @@ function MarketCurves({ curves, selectedDay }: { curves: AggregatedCurvePoint[];
     <div className="grid gap-3">
       <Panel>
         <PanelHeader title="Aggregated Buy / Sell Curves" kicker={`${selectedDay} · MTU 01`} />
-        <CurveChart data={curves} />
+        {curves.length > 0 ? <CurveChart data={curves} /> : <EmptyCurveState selectedDay={selectedDay} />}
       </Panel>
       <Panel>
         <PanelHeader title="Curve Points" kicker="Sampled from static Parquet/JSON layer" />
@@ -329,6 +333,15 @@ function MarketCurves({ curves, selectedDay }: { curves: AggregatedCurvePoint[];
           </table>
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function EmptyCurveState({ selectedDay }: { selectedDay: string }) {
+  return (
+    <div className="flex h-[290px] items-center justify-center px-6 text-center text-[12px] text-zinc-500">
+      AggrCurves are loaded for the recent modelling window only. {selectedDay || "This day"} has price
+      history, but no local curve slice.
     </div>
   );
 }

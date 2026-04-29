@@ -12,13 +12,7 @@ let manifest: StaticManifest | null = null;
 
 const api = {
   async initializeMarketDb(): Promise<DataHealth> {
-    const [jsonPrices, jsonCurves, loadedManifest] = await Promise.all([
-      loadJson<RawPriceRow[]>("/data/dam/dam_prices.json"),
-      loadJson<RawCurveRow[]>("/data/dam/dam_curves_sample.json"),
-      loadJson<StaticManifest>("/data/dam/dam_static_manifest.json"),
-    ]);
-    prices = jsonPrices;
-    curves = jsonCurves;
+    const loadedManifest = await loadJson<StaticManifest>("/data/dam/dam_static_manifest.json");
     manifest = loadedManifest;
 
     try {
@@ -49,6 +43,12 @@ const api = {
       mode = "duckdb";
     } catch (error) {
       console.warn("DuckDB-WASM unavailable; using JSON fallback.", error);
+      const [jsonPrices, jsonCurves] = await Promise.all([
+        loadJson<RawPriceRow[]>("/data/dam/dam_prices.json"),
+        loadJson<RawCurveRow[]>("/data/dam/dam_curves_sample.json"),
+      ]);
+      prices = jsonPrices;
+      curves = jsonCurves;
       mode = "json-fallback";
     }
 
@@ -97,9 +97,8 @@ const api = {
       return rows.map((row) => curveFromRaw(row as RawCurveRow));
     }
     const exact = curves.filter((row) => row.market_date === marketDate && Number(row.mtu) === mtu);
-    const sameMtu = curves.filter((row) => Number(row.mtu) === mtu);
     const sameDay = curves.filter((row) => row.market_date === marketDate);
-    const fallback = exact.length > 0 ? exact : sameMtu.length > 0 ? sameMtu : sameDay;
+    const fallback = exact.length > 0 ? exact : sameDay;
     return fallback
       .map(curveFromRaw)
       .sort((a, b) => a.side.localeCompare(b.side) || a.curveOrder - b.curveOrder);

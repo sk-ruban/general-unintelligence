@@ -35,9 +35,8 @@ export async function getJsonPriceSeries(dayRange: DayRange = {}): Promise<DamPr
 export async function getJsonCurveSlice(marketDate: string, mtu: number): Promise<AggregatedCurvePoint[]> {
   await ensureJson();
   const exact = (curveRows ?? []).filter((row) => row.market_date === marketDate && Number(row.mtu) === mtu);
-  const sameMtu = (curveRows ?? []).filter((row) => Number(row.mtu) === mtu);
   const sameDay = (curveRows ?? []).filter((row) => row.market_date === marketDate);
-  const fallback = exact.length > 0 ? exact : sameMtu.length > 0 ? sameMtu : sameDay;
+  const fallback = exact.length > 0 ? exact : sameDay;
   return fallback
     .map(curveFromRaw)
     .sort((a, b) => a.side.localeCompare(b.side) || a.curveOrder - b.curveOrder);
