@@ -1,0 +1,16 @@
+{
+  "name": "odyceo-hackathon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Battery Intelligence OS hackathon prototype",
+  "type": "module",
+  "scripts": {
+    "convex:dev": "convex dev",
+    "convex:codegen": "convex codegen",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "convex": "^1.36.1",
+    "typescript": "^6.0.3"
+  }
+}

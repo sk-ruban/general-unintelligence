@@ -338,9 +338,9 @@ Greek power prices are affected by fuel costs, especially during low-renewable o
 
 ---
 
-## 8.5 EEX — EU ETS / EUA carbon allowances
+## 8.5 EEX — EUA carbon allowances and Greek power futures context
 
-**Purpose:** Carbon cost signal for fossil generation.
+**Purpose:** Carbon cost signal for fossil generation and forward-market context for Greek power.
 
 **Use for:**
 
@@ -348,16 +348,23 @@ Greek power prices are affected by fuel costs, especially during low-renewable o
 - Carbon shock scenario inputs.
 - Thermal marginal-cost proxy.
 - Scarcity and regime metrics.
+- Greek power futures as a forward-curve context signal.
+- Report and LLM-analysis context for explaining broader market conditions.
 
 **Why it matters:**
 
 Carbon prices affect thermal generation economics and can influence electricity prices during periods when fossil generation sets the marginal price.
 
+EEX also exposes Greek power futures, such as Greek Power Base Month, Quarter, and Year products. These are not the operational dispatch price series for the battery scheduler, but they are useful context for reports, scenario narratives, and LLM-powered analysis because they show what the forward market is implying about future Greek baseload price levels.
+
 **Implementation notes:**
 
 - Build `EEXEUAAdapter` with manual CSV fallback.
+- Optionally build an `EEXGreekPowerFuturesAdapter` for forward-curve context.
 - Support official EEX data if credentials/licensing are available.
 - Include demo EUA time series if external access is unavailable.
+- Treat EEX data as context and scenario input; do not use it as the primary source for tomorrow's battery dispatch schedule.
+- Use HEnEx DAM and intraday market data as the primary Greek operational price source.
 
 **Source URLs:**
 
@@ -967,6 +974,7 @@ Key widgets:
 - RES forecast.
 - Residual load.
 - Fuel/carbon context.
+- Greek power forward-curve context.
 - Weather drivers.
 - Cross-border context.
 - Curtailment risk.
@@ -1206,4 +1214,3 @@ The product succeeds if a judge can understand in under 60 seconds:
 ## 20. Recommended final positioning
 
 > **Battery Intelligence OS is a configurable decision cockpit for battery operators entering volatile, data-scarce power markets. It aggregates market, system, weather, fuel, carbon, and shock signals; converts them into battery-specific flexibility metrics; uses a digital twin to simulate feasible operation; lets users compare model families; and produces explainable charge/discharge schedules and business-planning scenarios.**
-
