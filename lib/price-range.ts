@@ -25,6 +25,10 @@ export function priceRangeLabel(range: PriceRange) {
   return range;
 }
 
+export function priceRangeResolution(range: PriceRange): DayRange["resolution"] {
+  return range === "YTD" || range === "1Y" || range === "MAX" ? "daily-average" : "interval";
+}
+
 function startForRange(range: PriceRange, latest: DateTime, first: DateTime) {
   if (range === "1D") return latest;
   if (range === "1W") return latest.minus({ days: 6 });

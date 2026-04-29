@@ -3,6 +3,7 @@ import type { AggregatedCurvePoint, DamPricePoint, DataHealth } from "@/lib/type
 export type DayRange = {
   from?: string;
   to?: string;
+  resolution?: "interval" | "daily-average";
 };
 
 export type MarketDataApi = {

@@ -1,6 +1,10 @@
+import { DateTime } from "luxon";
+import { MARKET_TIME_ZONE } from "@/lib/market-time";
 import type { AggregatedCurvePoint, DamPricePoint, DataHealth } from "@/lib/types";
 import { curveFromRaw } from "./normalize";
 import type { DayRange, MarketDataApi } from "./types";
+
+const MAX_PRICE_QUERY_DAYS = 45;
 
 type FallbackMarketDataApi = Pick<
   MarketDataApi,
@@ -53,14 +57,14 @@ export function createConvexHttpMarketDataClient(
           includeRecentFiles: "true",
           fileLimit: "1000",
         });
-        const days = uniqueSorted(
-          (catalog.recentFiles ?? []).map((file) => file.marketDate).filter(isString),
-        );
+        const days =
+          marketDaysFromCoverage(catalog.coverage) ??
+          uniqueSorted((catalog.recentFiles ?? []).map((file) => file.marketDate).filter(isString));
         if (days.length > 0) {
           return days;
         }
-      } catch (error) {
-        console.warn("Convex DAM catalog unavailable; using static market days.", error);
+      } catch {
+        // Convex HTTP routes are optional in local dev; fall back to static data below.
       }
       return await fallback.getAvailableMarketDays();
     },
@@ -70,8 +74,8 @@ export function createConvexHttpMarketDataClient(
         if (rows.length > 0) {
           return rows;
         }
-      } catch (error) {
-        console.warn("Convex DAM prices unavailable; using static price series.", error);
+      } catch {
+        // Convex HTTP routes are optional in local dev; fall back to static data below.
       }
       return await fallback.getDamPriceSeries(dayRange);
     },
@@ -81,16 +85,16 @@ export function createConvexHttpMarketDataClient(
         if (curves.length > 0) {
           return curves;
         }
-      } catch (error) {
-        console.warn("Convex DAM curves unavailable; using static curve sample.", error);
+      } catch {
+        // Convex HTTP routes are optional in local dev; fall back to static data below.
       }
       return await fallback.getCurveSlice(marketDate, mtu);
     },
     async getDataHealth() {
       try {
         return await getDataHealth();
-      } catch (error) {
-        console.warn("Convex DAM health unavailable; using static data health.", error);
+      } catch {
+        // Convex HTTP routes are optional in local dev; fall back to static data below.
         return await fallback.getDataHealth();
       }
     },
@@ -114,8 +118,50 @@ export function createConvexHttpMarketDataClient(
 }
 
 async function fetchConvexPrices(baseUrl: string, dayRange: DayRange): Promise<DamPricePoint[]> {
-  const json = await fetchConvexJson<{ rows?: ConvexPriceRow[] }>(baseUrl, "/market/dam/prices", dayRange);
-  return (json.rows ?? [])
+  if (dayRange.resolution === "daily-average") {
+    try {
+      return await fetchConvexPriceRange(baseUrl, dayRange);
+    } catch {
+      return await fetchConvexPriceChunks(baseUrl, {
+        from: dayRange.from,
+        to: dayRange.to,
+        resolution: "interval",
+      });
+    }
+  }
+  return await fetchConvexPriceChunks(baseUrl, dayRange);
+}
+
+async function fetchConvexPriceRange(baseUrl: string, dayRange: DayRange): Promise<DamPricePoint[]> {
+  const json = await fetchConvexJson<{ rows?: ConvexPriceRow[] }>(
+    baseUrl,
+    "/market/dam/prices",
+    requestParams(dayRange),
+  );
+  return normalizePriceRows(json.rows ?? []);
+}
+
+async function fetchConvexPriceChunks(baseUrl: string, dayRange: DayRange): Promise<DamPricePoint[]> {
+  const chunks = splitDateRange(dayRange.from, dayRange.to);
+  const rows = await Promise.all(
+    chunks.map((chunk) =>
+      fetchConvexJson<{ rows?: ConvexPriceRow[] }>(baseUrl, "/market/dam/prices", requestParams(chunk)),
+    ),
+  );
+  return normalizePriceRows(rows.flatMap((response) => response.rows ?? []));
+}
+
+function requestParams(dayRange: DayRange): Record<string, string | undefined> {
+  return {
+    from: dayRange.from,
+    to: dayRange.to,
+    resolution: dayRange.resolution,
+    limit: "20000",
+  };
+}
+
+function normalizePriceRows(rows: ConvexPriceRow[]) {
+  return rows
     .filter((row) => typeof row.mcpEurPerMwh === "number")
     .map(priceFromConvex)
     .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc));
@@ -138,7 +184,7 @@ async function fetchConvexJson<T>(
   path: string,
   params: Record<string, string | undefined> = {},
 ) {
-  const url = new URL(path, `${baseUrl}/`);
+  const url = convexHttpUrl(baseUrl, path);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") {
       url.searchParams.set(key, value);
@@ -149,6 +195,19 @@ async function fetchConvexJson<T>(
     throw new Error(`${url.toString()} returned ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+function convexHttpUrl(baseUrl: string, path: string) {
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedPath = path.replace(/^\/+/, "");
+  const href = `${normalizedBase}/${normalizedPath}`;
+  if (/^https?:\/\//.test(href)) {
+    return new URL(href);
+  }
+  if (typeof window !== "undefined") {
+    return new URL(href, window.location.origin);
+  }
+  return new URL(href, "http://localhost");
 }
 
 function priceFromConvex(row: ConvexPriceRow): DamPricePoint {
@@ -177,4 +236,49 @@ function isString(value: unknown): value is string {
 
 function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort();
+}
+
+export function marketDaysFromCoverage(coverage: ConvexCatalog["coverage"]) {
+  const firstDate = coverage?.firstDate;
+  const lastDate = coverage?.lastDate;
+  if (!firstDate || !lastDate) {
+    return null;
+  }
+  const first = DateTime.fromISO(firstDate, { zone: MARKET_TIME_ZONE }).startOf("day");
+  const last = DateTime.fromISO(lastDate, { zone: MARKET_TIME_ZONE }).startOf("day");
+  if (!first.isValid || !last.isValid || first > last) {
+    return null;
+  }
+
+  const days: string[] = [];
+  for (let cursor = first; cursor <= last; cursor = cursor.plus({ days: 1 })) {
+    const day = cursor.toISODate();
+    if (day) {
+      days.push(day);
+    }
+  }
+  return days;
+}
+
+export function splitDateRange(from: string | undefined, to: string | undefined) {
+  if (!from || !to) {
+    return [{ from, to }];
+  }
+
+  const start = DateTime.fromISO(from, { zone: MARKET_TIME_ZONE }).startOf("day");
+  const end = DateTime.fromISO(to, { zone: MARKET_TIME_ZONE }).startOf("day");
+  if (!start.isValid || !end.isValid || start > end) {
+    return [{ from, to }];
+  }
+
+  const ranges: Array<{ from: string; to: string }> = [];
+  for (let cursor = start; cursor <= end; cursor = cursor.plus({ days: MAX_PRICE_QUERY_DAYS })) {
+    const chunkEnd = DateTime.min(cursor.plus({ days: MAX_PRICE_QUERY_DAYS - 1 }), end);
+    const chunkFrom = cursor.toISODate();
+    const chunkTo = chunkEnd.toISODate();
+    if (chunkFrom && chunkTo) {
+      ranges.push({ from: chunkFrom, to: chunkTo });
+    }
+  }
+  return ranges.length > 0 ? ranges : [{ from, to }];
 }

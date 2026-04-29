@@ -6,9 +6,12 @@ import {
   BarChart3,
   BatteryCharging,
   Box,
-  CheckCircle2,
+  CloudSun,
+  Database,
+  Flame,
   Gauge,
   Layers,
+  MapIcon,
   RotateCw,
   Search,
   Zap,
@@ -16,11 +19,11 @@ import {
 import { DateTime } from "luxon";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
-import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useMemo, useState } from "react";
 import { PanelGroup, PanelResizeHandle, Panel as ResizePanel } from "react-resizable-panels";
 import { CurveChart } from "@/components/curve-chart";
 import { DispatchTable } from "@/components/dispatch-table";
-import { PriceChart } from "@/components/price-chart";
+import { PriceChart, priceChartResolution, priceChartSeries } from "@/components/price-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
@@ -48,8 +51,18 @@ import {
 } from "@/components/ui/sidebar";
 import { buildDispatchSchedule, defaultBatteryTwin, summarizeDispatch } from "@/lib/battery-dispatch";
 import { loadExternalSignals } from "@/lib/convex-signals";
+import { getCurveDataClient } from "@/lib/curve-data/client";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import { getMarketDataClient } from "@/lib/market-data/client";
+import type { PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
+import { buildPortfolioState } from "@/lib/portfolio";
+import {
+  dayRangeForPriceWindow,
+  PRICE_RANGES,
+  type PriceRange,
+  priceRangeLabel,
+  priceRangeResolution,
+} from "@/lib/price-range";
 import type {
   AggregatedCurvePoint,
   BatteryTwinConfig,
@@ -60,8 +73,29 @@ import type {
   ExternalSignalPanel,
 } from "@/lib/types";
 
-type View = "control" | "market" | "signals" | "twin" | "model" | "scenarios" | "health";
+type View =
+  | "control"
+  | "portfolio"
+  | "market"
+  | "curves"
+  | "signals"
+  | "twin"
+  | "model"
+  | "scenarios"
+  | "health";
 type Tone = "cyan" | "green" | "amber" | "red" | "blue" | "violet" | "outline";
+
+type CurveStats = {
+  totalPoints: number;
+  buyPoints: number;
+  sellPoints: number;
+  buyMwh: number | null;
+  sellMwh: number | null;
+  lowPrice: number | null;
+  highPrice: number | null;
+  lowQuantity: number | null;
+  highQuantity: number | null;
+};
 
 const nav: {
   id: View;
@@ -70,23 +104,31 @@ const nav: {
   badge?: string;
 }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
+  { id: "portfolio", label: "Portfolio Map", icon: MapIcon },
   { id: "market", label: "Market Intelligence", icon: Activity },
-  { id: "signals", label: "Signal Engine", icon: Layers },
+  { id: "curves", label: "Market Curves", icon: Layers },
+  { id: "signals", label: "Weather & Gas", icon: CloudSun },
   { id: "twin", label: "Battery Twin", icon: BatteryCharging },
   { id: "model", label: "Model Lab", icon: Box, badge: "New" },
   { id: "scenarios", label: "Scenario Planner", icon: BarChart3 },
-  { id: "health", label: "Data Health", icon: CheckCircle2 },
+  { id: "health", label: "Data Health", icon: Database },
 ];
 
 export function CockpitClient() {
   const [view, setView] = useState<View>("control");
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState<string[]>([]);
+  const [curveDays, setCurveDays] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState("");
+  const [selectedMtu, setSelectedMtu] = useState(1);
   const [prices, setPrices] = useState<DamPricePoint[]>([]);
+  const [chartPrices, setChartPrices] = useState<DamPricePoint[]>([]);
+  const [priceRange, setPriceRange] = useState<PriceRange>("1M");
   const [curves, setCurves] = useState<AggregatedCurvePoint[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
+  const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
   const [signals, setSignals] = useState<ExternalSignalPanel[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState("kozani-north");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [twin, setTwin] = useState<BatteryTwinConfig>(defaultBatteryTwin);
 
@@ -94,23 +136,22 @@ export function CockpitClient() {
     let cancelled = false;
     async function load() {
       setLoading(true);
-      const client = await getMarketDataClient();
-      const [healthResult, marketDays, signalResult] = await Promise.all([
-        client.getDataHealth(),
-        client.getAvailableMarketDays(),
-        loadExternalSignals(),
-      ]);
-      const latestDay = marketDays.at(-1) ?? "";
-      const [priceSeries, curveSlice] = await Promise.all([
-        client.getDamPriceSeries({ from: latestDay, to: latestDay }),
-        client.getCurveSlice(latestDay, 1),
-      ]);
+      const [marketClient, curveClient] = await Promise.all([getMarketDataClient(), getCurveDataClient()]);
+      const [healthResult, curveHealthResult, marketDays, availableCurveDays, signalResult] =
+        await Promise.all([
+          marketClient.getDataHealth(),
+          curveClient.getCurveHealth(),
+          marketClient.getAvailableMarketDays(),
+          curveClient.getAvailableCurveDays(),
+          loadExternalSignals(),
+        ]);
+      const latestDay = marketDays.at(-1) ?? availableCurveDays.at(-1) ?? "";
       if (!cancelled) {
         setHealth(healthResult);
+        setCurveHealth(curveHealthResult);
         setDays(marketDays);
+        setCurveDays(availableCurveDays);
         setSelectedDay(latestDay);
-        setPrices(priceSeries);
-        setCurves(curveSlice);
         setSignals(signalResult.panels);
         setLoading(false);
       }
@@ -129,13 +170,9 @@ export function CockpitClient() {
     let cancelled = false;
     async function loadDay() {
       const client = await getMarketDataClient();
-      const [priceSeries, curveSlice] = await Promise.all([
-        client.getDamPriceSeries({ from: selectedDay, to: selectedDay }),
-        client.getCurveSlice(selectedDay, 1),
-      ]);
+      const priceSeries = await client.getDamPriceSeries({ from: selectedDay, to: selectedDay });
       if (!cancelled) {
         setPrices(priceSeries);
-        setCurves(curveSlice);
       }
     }
     loadDay().catch(console.error);
@@ -143,6 +180,45 @@ export function CockpitClient() {
       cancelled = true;
     };
   }, [selectedDay]);
+
+  useEffect(() => {
+    const latestDay = days.at(-1) ?? "";
+    const firstDay = days[0] ?? "";
+    if (!latestDay || !firstDay) return;
+    let cancelled = false;
+    setChartPrices([]);
+    async function loadChartRange() {
+      const client = await getMarketDataClient();
+      const range = dayRangeForPriceWindow(priceRange, latestDay, firstDay);
+      const priceSeries = await client.getDamPriceSeries({
+        ...range,
+        resolution: priceRangeResolution(priceRange),
+      });
+      if (!cancelled) {
+        setChartPrices(priceSeries);
+      }
+    }
+    loadChartRange().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [days, priceRange]);
+
+  useEffect(() => {
+    if (!selectedDay) return;
+    let cancelled = false;
+    async function loadCurveSlice() {
+      const client = await getCurveDataClient();
+      const curveSlice = await client.getCurveSlice(selectedDay, selectedMtu);
+      if (!cancelled) {
+        setCurves(curveSlice);
+      }
+    }
+    loadCurveSlice().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, selectedMtu]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -161,52 +237,96 @@ export function CockpitClient() {
   const priceValues = prices.map((point) => point.mcpEurPerMwh);
   const lowPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
   const highPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
+  const curveStats = useMemo(() => summarizeCurves(curves), [curves]);
+  const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);
+  const portfolio = useMemo(() => buildPortfolioState(prices), [prices]);
+  const selectedSite =
+    portfolio.sites.find((site) => site.id === selectedSiteId) ?? portfolio.sites[0] ?? null;
 
   return (
     <main className="h-screen overflow-hidden bg-[var(--bg-base)] text-[var(--text-primary)]">
       <SidebarProvider
+        className="h-full min-h-0"
         style={
           {
             "--sidebar-width": "15rem",
             "--sidebar-width-icon": "3rem",
-          } as React.CSSProperties
+          } as CSSProperties
         }
       >
         <AppSidebar activeView={view} onViewChange={setView} />
-        <section className="flex h-full min-w-0 flex-1 flex-col">
+        <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           <TopBar selectedDay={selectedDay} days={days} onDayChange={setSelectedDay} />
           <PanelGroup direction="horizontal" className="min-h-0 flex-1">
-            <ResizePanel defaultSize={76} minSize={54}>
-              <main className="dense-scrollbar flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+            <ResizePanel className="min-h-0 overflow-hidden" defaultSize={76} minSize={54}>
+              <main className="dense-scrollbar flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto p-4">
                 {view === "control" ? (
                   <ControlRoom
                     prices={prices}
+                    chartPrices={chartPrices}
+                    priceRange={priceRange}
+                    onPriceRangeChange={setPriceRange}
                     curves={curves}
+                    curveStats={curveStats}
+                    selectedMtu={selectedMtu}
                     dispatch={dispatch}
                     summary={summary}
                     latestPrice={latestPrice}
                     lowPrice={lowPrice}
                     highPrice={highPrice}
                     signals={signals}
+                    portfolioSummary={portfolio.summary}
                     loading={loading}
                     twin={twin}
                   />
                 ) : null}
+                {view === "portfolio" ? (
+                  <PortfolioView
+                    portfolioSummary={portfolio.summary}
+                    selectedSite={selectedSite}
+                    selectedSiteId={selectedSite?.id ?? selectedSiteId}
+                    sites={portfolio.sites}
+                    onSelectSite={setSelectedSiteId}
+                  />
+                ) : null}
                 {view === "market" ? (
-                  <MarketIntelligence curves={curves} prices={prices} selectedDay={selectedDay} />
+                  <MarketIntelligence
+                    chartPrices={chartPrices}
+                    curves={curves}
+                    priceRange={priceRange}
+                    prices={prices}
+                    selectedDay={selectedDay}
+                    onPriceRangeChange={setPriceRange}
+                  />
                 ) : null}
-                {view === "signals" ? (
-                  <SignalEngine signals={signals} dispatch={dispatch} summary={summary} />
+                {view === "curves" ? (
+                  <MarketCurves
+                    curves={curves}
+                    curveStats={curveStats}
+                    selectedDay={selectedDay}
+                    selectedMtu={selectedMtu}
+                    onMtuChange={setSelectedMtu}
+                    hasCurveDay={curveDaySet.has(selectedDay)}
+                  />
                 ) : null}
+                {view === "signals" ? <SignalsView signals={signals} /> : null}
                 {view === "twin" ? <BatteryTwin twin={twin} setTwin={setTwin} summary={summary} /> : null}
                 {view === "model" ? <ModelLab twin={twin} summary={summary} dispatch={dispatch} /> : null}
                 {view === "scenarios" ? <Scenarios dispatch={dispatch} /> : null}
-                {view === "health" ? <DataHealthView health={health} signals={signals} days={days} /> : null}
+                {view === "health" ? (
+                  <DataHealthView
+                    curveDays={curveDays}
+                    curveHealth={curveHealth}
+                    health={health}
+                    signals={signals}
+                    days={days}
+                  />
+                ) : null}
               </main>
             </ResizePanel>
             <PanelResizeHandle className="w-px bg-white/10 transition hover:bg-cyan-300/60 data-[resize-handle-active]:bg-cyan-300/70" />
             <ResizePanel
-              className="transition-[flex-basis] duration-200 ease-out"
+              className="min-h-0 overflow-hidden transition-[flex-basis] duration-200 ease-out"
               defaultSize={24}
               minSize={22}
               maxSize={32}
@@ -340,24 +460,36 @@ function TopBar({
 
 function ControlRoom({
   prices,
+  chartPrices,
+  priceRange,
+  onPriceRangeChange,
   curves,
+  curveStats,
+  selectedMtu,
   dispatch,
   summary,
   latestPrice,
   lowPrice,
   highPrice,
   signals,
+  portfolioSummary,
   loading,
   twin,
 }: {
   prices: DamPricePoint[];
+  chartPrices: DamPricePoint[];
+  priceRange: PriceRange;
+  onPriceRangeChange: (range: PriceRange) => void;
   curves: AggregatedCurvePoint[];
+  curveStats: CurveStats;
+  selectedMtu: number;
   dispatch: DispatchPoint[];
   summary: ReturnType<typeof summarizeDispatch>;
   latestPrice: number | null;
   lowPrice: number | null;
   highPrice: number | null;
   signals: ExternalSignalPanel[];
+  portfolioSummary: PortfolioSummary;
   loading: boolean;
   twin: BatteryTwinConfig;
 }) {
@@ -366,6 +498,7 @@ function ControlRoom({
   const throughput = summary.chargeMwh + summary.dischargeMwh;
   const degradationCost = throughput * twin.degradationCostEurPerMwh;
   const equivalentCycles = twin.capacityMwh > 0 ? throughput / (2 * twin.capacityMwh) : 0;
+  const priceChartData = chartPrices.length > 0 || priceRange !== "1D" ? chartPrices : prices;
 
   return (
     <>
@@ -377,6 +510,9 @@ function ControlRoom({
           spreads outside these windows do not cover degradation cost and forecast risk.
         </div>
       </div>
+
+      <PortfolioSummaryStrip summary={portfolioSummary} />
+      <SignalDeck signals={signals} />
 
       <Panel>
         <PanelHeader
@@ -404,26 +540,43 @@ function ControlRoom({
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel>
           <PanelHeader
-            title="DAM Price Forecast (EUR/MWh)"
-            kicker={loading ? "Loading static market layer" : "15-minute MTU"}
-            right={<Tag tone="outline">Uncertainty Band: 90%</Tag>}
+            title="DAM MCP Price Series"
+            kicker={loading ? "Loading market layer" : priceSeriesKicker(chartPrices, priceRange)}
+            right={<PriceRangeControl value={priceRange} onChange={onPriceRangeChange} />}
           />
           <div className="p-3">
-            <PriceChart data={prices} height={180} />
-            <ChartAxis />
+            {priceChartData.length > 0 ? (
+              <PriceChart key={priceChartKey(priceRange, priceChartData)} data={priceChartData} height={220} />
+            ) : (
+              <EmptyPriceState range={priceRange} />
+            )}
           </div>
         </Panel>
         <Panel>
           <PanelHeader
-            title="State of Charge Trajectory (%)"
-            right={<Tag tone="outline">Constraint: Min 10% / Max 95%</Tag>}
+            title={`MTU ${String(selectedMtu).padStart(2, "0")} Curve Depth`}
+            kicker={`${curveStats.totalPoints} curve points`}
           />
           <div className="p-3">
-            <SocTrajectory dispatch={dispatch} twin={twin} />
-            <ChartAxis />
+            {curves.length > 0 ? (
+              <CurveChart data={curves} />
+            ) : (
+              <EmptyCurveState selectedDay={prices[0]?.interval.marketDate ?? ""} selectedMtu={selectedMtu} />
+            )}
           </div>
         </Panel>
       </div>
+
+      <Panel>
+        <PanelHeader
+          title="State of Charge Trajectory (%)"
+          right={<Tag tone="outline">Constraint: Min 10% / Max 95%</Tag>}
+        />
+        <div className="p-3">
+          <SocTrajectory dispatch={dispatch} twin={twin} />
+          <ChartAxis />
+        </div>
+      </Panel>
 
       <div className="grid gap-2 md:grid-cols-4">
         <Metric label="Latest MCP" value={formatEurPerMwh(latestPrice)} detail="Final HEnEx DAM" />
@@ -505,21 +658,409 @@ function ControlRoom({
   );
 }
 
-function MarketIntelligence({
-  curves,
-  prices,
-  selectedDay,
+function PriceRangeControl({
+  value,
+  onChange,
 }: {
-  curves: AggregatedCurvePoint[];
-  prices: DamPricePoint[];
-  selectedDay: string;
+  value: PriceRange;
+  onChange: (range: PriceRange) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="hidden text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em] sm:inline">
+        Duration
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {PRICE_RANGES.map((range) => (
+          <button
+            key={range}
+            className={`mono h-6 rounded-sm border px-2 text-[10px] transition ${
+              value === range
+                ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-100"
+                : "border-white/10 bg-[var(--bg-base)] text-zinc-500 hover:text-zinc-200"
+            }`}
+            type="button"
+            onClick={() => onChange(range)}
+          >
+            {priceRangeLabel(range)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function priceSeriesKicker(prices: DamPricePoint[], range: PriceRange) {
+  if (prices.length === 0) {
+    return `${priceRangeLabel(range)} · loading`;
+  }
+  const first = prices[0]?.interval.marketDate ?? "n/a";
+  const last = prices.at(-1)?.interval.marketDate ?? "n/a";
+  const resolution = priceChartResolution(prices) === "daily-average" ? "daily avg" : "15-minute MTU";
+  return `${priceRangeLabel(range)} · ${first} -> ${last} · ${priceChartSeries(prices).length} ${resolution}`;
+}
+
+function priceChartKey(range: PriceRange, prices: DamPricePoint[]) {
+  const first = prices[0]?.interval.timestampUtc ?? "none";
+  const last = prices.at(-1)?.interval.timestampUtc ?? "none";
+  return `${range}:${first}:${last}:${prices.length}:${priceChartResolution(prices)}`;
+}
+
+function EmptyPriceState({ range }: { range: PriceRange }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center px-6 text-center text-[12px] text-zinc-500">
+      Loading {priceRangeLabel(range)} price history from Convex.
+    </div>
+  );
+}
+
+function PortfolioSummaryStrip({ summary }: { summary: PortfolioSummary }) {
+  return (
+    <div className="grid gap-2 md:grid-cols-4">
+      <Metric label="Fleet Capacity" value={formatMwh(summary.capacityMwh)} detail="Demo Greek portfolio" />
+      <Metric label="Charging" value={formatMw(summary.chargingMw)} detail="Current interval" />
+      <Metric label="Discharging" value={formatMw(summary.dischargingMw)} detail="Current interval" />
+      <Metric
+        label="Average SoC"
+        value={formatPercent(summary.averageSocPercent === null ? null : summary.averageSocPercent / 100)}
+        detail={`${summary.activeSites} active sites`}
+      />
+    </div>
+  );
+}
+
+function PortfolioView({
+  sites,
+  selectedSite,
+  selectedSiteId,
+  portfolioSummary,
+  onSelectSite,
+}: {
+  sites: PortfolioSiteState[];
+  selectedSite: PortfolioSiteState | null;
+  selectedSiteId: string;
+  portfolioSummary: PortfolioSummary;
+  onSelectSite: (siteId: string) => void;
 }) {
   return (
     <div className="grid gap-4">
+      <PortfolioSummaryStrip summary={portfolioSummary} />
+      <div className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
+        <Panel>
+          <PanelHeader title="Greek Battery Portfolio" kicker="Demo BESS sites · current dispatch state" />
+          <GreeceBatteryMap selectedSiteId={selectedSiteId} sites={sites} onSelectSite={onSelectSite} />
+        </Panel>
+        <SiteDetailPanel site={selectedSite} />
+      </div>
       <Panel>
-        <PanelHeader title="DAM MCP Price Series" kicker={`${selectedDay} · 15-minute MTU`} />
+        <PanelHeader title="Site Tape" kicker="Fleet state by asset" />
+        <div className="dense-scrollbar max-h-[340px] overflow-auto">
+          <table className="w-full table-fixed text-left text-[11px]">
+            <thead className="sticky top-0 bg-[var(--bg-panel)] text-zinc-500 uppercase">
+              <tr>
+                <th className="h-7 px-3">Site</th>
+                <th className="h-7 px-3">Region</th>
+                <th className="h-7 px-3">Action</th>
+                <th className="h-7 px-3">MW</th>
+                <th className="h-7 px-3">SoC</th>
+                <th className="h-7 px-3">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sites.map((site) => (
+                <tr
+                  key={site.id}
+                  className={`cursor-pointer border-white/5 border-t transition hover:bg-white/[0.04] ${
+                    selectedSiteId === site.id ? "bg-cyan-300/[0.06]" : ""
+                  }`}
+                  onClick={() => onSelectSite(site.id)}
+                >
+                  <td className="h-8 truncate px-3 text-zinc-200">{site.name}</td>
+                  <td className="h-8 truncate px-3 text-zinc-500">{site.region}</td>
+                  <td className={`h-8 px-3 font-semibold uppercase ${actionTextClass(site.current?.action)}`}>
+                    {site.current?.action ?? "idle"}
+                  </td>
+                  <td className="mono h-8 px-3">{formatMw(site.current?.mw ?? 0)}</td>
+                  <td className="mono h-8 px-3">{formatPercent(site.socPercent / 100)}</td>
+                  <td className="mono h-8 px-3">{formatEuro(site.summary.valueEur)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function GreeceBatteryMap({
+  sites,
+  selectedSiteId,
+  onSelectSite,
+}: {
+  sites: PortfolioSiteState[];
+  selectedSiteId: string;
+  onSelectSite: (siteId: string) => void;
+}) {
+  return (
+    <div className="relative min-h-[520px] overflow-hidden bg-[var(--bg-base)]">
+      <svg
+        aria-label="Greece portfolio map"
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="xMidYMid meet"
+        role="img"
+        viewBox="0 0 420 520"
+      >
+        <rect width="420" height="520" fill="#050506" />
+        <path
+          d="M157 67 195 48 243 57 278 87 268 125 290 156 271 197 286 226 258 267 282 302 268 354 239 363 219 336 191 354 168 328 181 291 153 258 167 223 139 190 154 151 134 116Z"
+          fill="#12151b"
+          stroke="#67E8F9"
+          strokeOpacity="0.34"
+          strokeWidth="2"
+        />
+        <path
+          d="M205 364 240 386 235 425 205 455 167 444 145 411 166 377Z"
+          fill="#12151b"
+          stroke="#67E8F9"
+          strokeOpacity="0.28"
+          strokeWidth="2"
+        />
+        <path
+          d="M292 245 315 262 303 294 278 284Z M317 330 348 346 337 382 303 372Z M118 292 139 305 126 337 102 320Z M315 151 337 167 325 194 300 181Z"
+          fill="#101216"
+          stroke="#71717a"
+          strokeOpacity="0.32"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M83 82H337M64 162H356M58 242H362M73 322H347M103 402H317"
+          stroke="#ffffff"
+          strokeOpacity="0.045"
+        />
+        <path d="M120 39V474M190 26V489M260 39V474M330 78V438" stroke="#ffffff" strokeOpacity="0.045" />
+      </svg>
+      <div className="absolute inset-0">
+        {sites.map((site) => {
+          const position = projectSite(site);
+          const selected = selectedSiteId === site.id;
+          return (
+            <button
+              key={site.id}
+              className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center outline-none"
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+              title={site.name}
+              type="button"
+              onClick={() => onSelectSite(site.id)}
+            >
+              <span
+                className={`flex h-9 w-9 items-center justify-center border bg-black/80 shadow-[0_0_24px_rgba(0,0,0,0.7)] transition ${
+                  selected ? "scale-110 border-white" : markerClass(site.current?.action)
+                }`}
+              >
+                <span
+                  className={`h-3.5 w-3.5 ${site.current?.action === "idle" ? "bg-zinc-500" : "bg-current"}`}
+                  style={{ opacity: 0.45 + site.socPercent / 180 }}
+                />
+              </span>
+              <span className="pointer-events-none absolute top-10 hidden min-w-32 border border-white/10 bg-zinc-950/95 px-2 py-1 text-left text-[10px] shadow-xl md:block">
+                <span className="block truncate text-zinc-200">{site.name}</span>
+                <span className={`block uppercase ${actionTextClass(site.current?.action)}`}>
+                  {site.current?.action ?? "idle"} · {formatPercent(site.socPercent / 100)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="absolute right-3 bottom-3 grid gap-1 border border-white/10 bg-black/70 p-2 text-[10px] text-zinc-500 uppercase">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-[var(--green)]" /> Charging
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-[var(--amber)]" /> Discharging
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-zinc-500" /> Idle
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SiteDetailPanel({ site }: { site: PortfolioSiteState | null }) {
+  if (!site) {
+    return (
+      <Panel>
+        <PanelHeader title="Site Detail" kicker="No site selected" />
+        <div className="p-3 text-[12px] text-zinc-500">Portfolio data is loading.</div>
+      </Panel>
+    );
+  }
+  const nextAction = site.schedule.find((point) => point.action !== "idle");
+  const currentAction = site.current?.action ?? "idle";
+  return (
+    <Panel>
+      <PanelHeader title={site.name} kicker={`${site.region} · ${site.constraint}`} />
+      <div className="grid gap-3 p-3">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+          <DetailMetric
+            label="Current Action"
+            value={currentAction.toUpperCase()}
+            detail={site.current?.reason ?? "No dispatch"}
+          />
+          <DetailMetric
+            label="Power"
+            value={formatMw(site.current?.mw ?? 0)}
+            detail={site.current?.interval.athensLabel ?? "n/a"}
+          />
+          <DetailMetric
+            label="State of Charge"
+            value={formatPercent(site.socPercent / 100)}
+            detail={formatMwh(site.current?.socMwh ?? site.initialSocMwh)}
+          />
+          <DetailMetric
+            label="Day Value"
+            value={formatEuro(site.summary.valueEur)}
+            detail="Local deterministic schedule"
+          />
+        </div>
+        <div className="border border-white/10 bg-black/25 p-3">
+          <div className="flex items-center justify-between text-[10px] text-zinc-500 uppercase">
+            <span>SoC band</span>
+            <span className="mono">
+              {formatMwh(site.minSocMwh)} / {formatMwh(site.maxSocMwh)}
+            </span>
+          </div>
+          <div className="mt-2 h-2 bg-white/10">
+            <div className="h-full bg-[var(--cyan)]" style={{ width: `${site.socPercent}%` }} />
+          </div>
+        </div>
+        <div className="grid gap-1 border border-white/10 bg-black/25 p-3 text-[11px]">
+          <div className="text-[10px] text-zinc-500 uppercase">Next useful interval</div>
+          <div className="mono text-zinc-100">
+            {nextAction
+              ? `${nextAction.interval.athensLabel} · ${nextAction.action.toUpperCase()}`
+              : "No action"}
+          </div>
+          <div className="text-zinc-500">
+            {nextAction?.reason ?? "No non-idle interval in the selected day."}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function projectSite(site: Pick<PortfolioSiteState, "latitude" | "longitude">) {
+  const minLon = 19.2;
+  const maxLon = 29.8;
+  const minLat = 34.3;
+  const maxLat = 41.4;
+  return {
+    x: 12 + ((site.longitude - minLon) / (maxLon - minLon)) * 76,
+    y: 8 + ((maxLat - site.latitude) / (maxLat - minLat)) * 84,
+  };
+}
+
+function markerClass(action: DispatchPoint["action"] | undefined) {
+  if (action === "charge") return "border-[var(--green)] text-[var(--green)]";
+  if (action === "discharge") return "border-[var(--amber)] text-[var(--amber)]";
+  return "border-zinc-600 text-zinc-500";
+}
+
+function actionTextClass(action: DispatchPoint["action"] | undefined) {
+  if (action === "charge") return "text-[var(--green)]";
+  if (action === "discharge") return "text-[var(--amber)]";
+  return "text-zinc-500";
+}
+
+function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
+  const weather = findSignal(signals, "Weather");
+  const ttf = findSignal(signals, "TTF gas");
+  const eex = findSignal(signals, "EEX");
+  return (
+    <div className="grid gap-2 md:grid-cols-[1fr_1fr_0.8fr]">
+      <SignalSpotlight accent="cyan" icon={CloudSun} kicker="Open-Meteo" signal={weather} title="Weather" />
+      <SignalSpotlight accent="amber" icon={Flame} kicker="ICE" signal={ttf} title="TTF gas" />
+      <SignalSpotlight accent="zinc" icon={Activity} kicker="EEX" signal={eex} title="Forward Context" />
+    </div>
+  );
+}
+
+function SignalsView({ signals }: { signals: ExternalSignalPanel[] }) {
+  const weather = findSignal(signals, "Weather");
+  const ttf = findSignal(signals, "TTF gas");
+  const eex = findSignal(signals, "EEX");
+  return (
+    <div className="grid gap-4">
+      <SignalDeck signals={signals} />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel>
+          <PanelHeader title="Weather Driver" kicker="Open-Meteo Greek 15-minute grid" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            <Metric
+              label="Solar Signal"
+              value={weather?.value ?? "Missing"}
+              detail={weather?.detail ?? "No cache"}
+            />
+            <Metric label="Status" value={statusLabel(weather)} detail="Weather cache" />
+          </div>
+        </Panel>
+        <Panel>
+          <PanelHeader title="Gas Driver" kicker="ICE Dutch TTF fuel-cost proxy" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            <Metric
+              label="Thermal Proxy"
+              value={ttf?.value ?? "Missing"}
+              detail={ttf?.detail ?? "No cache"}
+            />
+            <Metric label="Status" value={statusLabel(ttf)} detail="TTF cache" />
+          </div>
+        </Panel>
+      </div>
+      <Panel>
+        <PanelHeader title="Signal Tape" kicker="Convex HTTP surfaces" />
+        <div className="grid gap-2 p-3 md:grid-cols-3">
+          <SignalCard signal={weather ?? missingSignal("Weather")} />
+          <SignalCard signal={ttf ?? missingSignal("TTF gas")} />
+          <SignalCard signal={eex ?? missingSignal("EEX context")} />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function MarketIntelligence({
+  chartPrices,
+  curves,
+  priceRange,
+  prices,
+  selectedDay,
+  onPriceRangeChange,
+}: {
+  chartPrices: DamPricePoint[];
+  curves: AggregatedCurvePoint[];
+  priceRange: PriceRange;
+  prices: DamPricePoint[];
+  selectedDay: string;
+  onPriceRangeChange: (range: PriceRange) => void;
+}) {
+  const priceChartData = chartPrices.length > 0 || priceRange !== "1D" ? chartPrices : prices;
+  return (
+    <div className="grid gap-4">
+      <Panel>
+        <PanelHeader
+          title="DAM MCP Price History"
+          kicker={priceSeriesKicker(chartPrices, priceRange)}
+          right={<PriceRangeControl value={priceRange} onChange={onPriceRangeChange} />}
+        />
         <div className="p-3">
-          <PriceChart data={prices} />
+          {priceChartData.length > 0 ? (
+            <PriceChart key={priceChartKey(priceRange, priceChartData)} data={priceChartData} />
+          ) : (
+            <EmptyPriceState range={priceRange} />
+          )}
         </div>
       </Panel>
       <Panel>
@@ -534,44 +1075,105 @@ function MarketIntelligence({
   );
 }
 
-function SignalEngine({
-  signals,
-  dispatch,
-  summary,
+function MarketCurves({
+  curves,
+  curveStats,
+  selectedDay,
+  selectedMtu,
+  onMtuChange,
+  hasCurveDay,
 }: {
-  signals: ExternalSignalPanel[];
-  dispatch: DispatchPoint[];
-  summary: ReturnType<typeof summarizeDispatch>;
+  curves: AggregatedCurvePoint[];
+  curveStats: CurveStats;
+  selectedDay: string;
+  selectedMtu: number;
+  onMtuChange: (mtu: number) => void;
+  hasCurveDay: boolean;
 }) {
   return (
     <div className="grid gap-4">
+      <Panel>
+        <PanelHeader
+          title="Aggregated Buy / Sell Curves"
+          kicker={`${selectedDay} · MTU ${String(selectedMtu).padStart(2, "0")}`}
+          right={<MtuControl selectedMtu={selectedMtu} onMtuChange={onMtuChange} />}
+        />
+        {curves.length > 0 ? (
+          <CurveChart data={curves} />
+        ) : (
+          <EmptyCurveState selectedDay={selectedDay} selectedMtu={selectedMtu} hasCurveDay={hasCurveDay} />
+        )}
+      </Panel>
       <div className="grid gap-2 md:grid-cols-4">
         <Metric
-          label="Charge Attractiveness"
-          value={scoreForAction(dispatch, "charge")}
-          detail="Low-price interval density"
+          label="Curve Points"
+          value={String(curveStats.totalPoints)}
+          detail={`${curveStats.buyPoints} buy · ${curveStats.sellPoints} sell`}
         />
         <Metric
-          label="Discharge Scarcity"
-          value={scoreForAction(dispatch, "discharge")}
-          detail="High-price interval density"
+          label="Bid / Offer Volume"
+          value={`${formatMwh(curveStats.buyMwh)} · ${formatMwh(curveStats.sellMwh)}`}
+          detail="Displayed MTU"
         />
         <Metric
-          label="Flexibility Value Idx"
-          value={`${Math.max(0, summary.valueEur / 100).toFixed(1)} ▲`}
-          detail="Schedule value proxy"
+          label="Price Range"
+          value={`${formatEurPerMwh(curveStats.lowPrice)} · ${formatEurPerMwh(curveStats.highPrice)}`}
+          detail="Curve stack"
         />
         <Metric
-          label="Spread Robustness"
-          value={summary.valueEur > 0 ? "Medium" : "Low"}
-          detail="Cost-aware feasibility"
+          label="Quantity Range"
+          value={`${formatMwh(curveStats.lowQuantity)} · ${formatMwh(curveStats.highQuantity)}`}
+          detail="Per submitted point"
         />
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        {signals.map((signal) => (
-          <SignalCard key={signal.label} signal={signal} />
-        ))}
-      </div>
+      <Panel>
+        <PanelHeader title="Curve Points" kicker="Recent AggrCurves static layer" />
+        <DataTable curves={curves} />
+      </Panel>
+    </div>
+  );
+}
+
+function MtuControl({
+  selectedMtu,
+  onMtuChange,
+}: {
+  selectedMtu: number;
+  onMtuChange: (mtu: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+      <span className="uppercase">MTU</span>
+      <Input
+        className="h-7 w-16 px-2 text-center font-mono text-[12px]"
+        max={100}
+        min={1}
+        type="number"
+        value={selectedMtu}
+        onChange={(event) => {
+          const next = Math.max(1, Math.min(100, Number(event.target.value) || 1));
+          onMtuChange(next);
+        }}
+      />
+    </div>
+  );
+}
+
+function EmptyCurveState({
+  selectedDay,
+  selectedMtu,
+  hasCurveDay = false,
+}: {
+  selectedDay: string;
+  selectedMtu?: number;
+  hasCurveDay?: boolean;
+}) {
+  const mtuLabel = selectedMtu ? ` MTU ${String(selectedMtu).padStart(2, "0")}` : "";
+  return (
+    <div className="flex h-[290px] items-center justify-center px-6 text-center text-[12px] text-zinc-500">
+      {hasCurveDay
+        ? `No local AggrCurve points for ${selectedDay}${mtuLabel}.`
+        : `AggrCurves are loaded for the recent modelling window only. ${selectedDay || "This day"} has price history, but no local curve day.`}
     </div>
   );
 }
@@ -709,29 +1311,41 @@ function Scenarios({ dispatch }: { dispatch: DispatchPoint[] }) {
 
 function DataHealthView({
   health,
+  curveHealth,
   signals,
   days,
+  curveDays,
 }: {
   health: DataHealth | null;
+  curveHealth: DataHealth | null;
   signals: ExternalSignalPanel[];
   days: string[];
+  curveDays: string[];
 }) {
   return (
     <div className="grid gap-4">
       <Panel>
-        <PanelHeader title="Static DAM Layer" kicker="Generated from local ENEX XLSX" />
+        <PanelHeader title="DAM Price Layer" kicker="Convex prices with static curve overlays" />
         <div className="grid gap-2 p-3 md:grid-cols-4">
-          <Metric label="Mode" value={health?.mode ?? "loading"} detail="DuckDB-WASM or JSON fallback" />
+          <Metric
+            label="Mode"
+            value={marketModeLabel(health?.mode)}
+            detail="Convex primary, static fallback"
+          />
           <Metric
             label="Price rows"
             value={String(health?.priceRows ?? 0)}
             detail={`${days.length} market days`}
           />
-          <Metric label="Curve rows" value={String(health?.curveRows ?? 0)} detail="Recent curve window" />
+          <Metric
+            label="Curve rows"
+            value={String(curveHealth?.curveRows ?? health?.curveRows ?? 0)}
+            detail={`${curveDays.length} curve days`}
+          />
           <Metric
             label="Coverage"
             value={`${health?.firstMarketDate ?? "n/a"} -> ${health?.lastMarketDate ?? "n/a"}`}
-            detail="Manifest range"
+            detail="Available market range"
           />
         </div>
       </Panel>
@@ -965,6 +1579,16 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
   );
 }
 
+function DetailMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="border border-white/10 bg-[var(--bg-base)] p-3">
+      <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
+      <div className="mono mt-1 truncate text-[16px] font-medium text-zinc-100">{value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{detail}</div>
+    </div>
+  );
+}
+
 function MetricBox({ label, value, tone }: { label: string; value: string; tone?: Tone }) {
   return (
     <div className="flex flex-col gap-1 bg-[var(--bg-panel)] p-3">
@@ -1023,6 +1647,45 @@ function SignalCard({ signal, compact = false }: { signal: ExternalSignalPanel; 
       <div className="mono mt-1 truncate text-sm text-zinc-100">{signal.value}</div>
       {!compact ? <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{signal.detail}</div> : null}
     </div>
+  );
+}
+
+function SignalSpotlight({
+  signal,
+  title,
+  kicker,
+  icon: Icon,
+  accent,
+}: {
+  signal: ExternalSignalPanel | undefined;
+  title: string;
+  kicker: string;
+  icon: ComponentType<{ className?: string }>;
+  accent: "cyan" | "amber" | "zinc";
+}) {
+  const resolved = signal ?? missingSignal(title);
+  const accentClass =
+    accent === "cyan"
+      ? "border-cyan-300/25 bg-cyan-300/[0.055] text-cyan-200"
+      : accent === "amber"
+        ? "border-amber-300/25 bg-amber-300/[0.055] text-amber-200"
+        : "border-zinc-300/15 bg-white/[0.035] text-zinc-200";
+  return (
+    <Panel className="p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{kicker}</div>
+          <div className="mt-1 font-medium text-[12px] text-zinc-100 uppercase tracking-[0.02em]">
+            {title}
+          </div>
+        </div>
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center border ${accentClass}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mono mt-3 truncate text-[16px] font-medium text-zinc-100">{resolved.value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{resolved.detail}</div>
+    </Panel>
   );
 }
 
@@ -1183,6 +1846,57 @@ function getActionRange(dispatch: DispatchPoint[], action: DispatchAction) {
   }
   ranges.push(start === previous ? `MTU ${start}` : `MTU ${start}-${previous}`);
   return ranges.join(", ");
+}
+
+function marketModeLabel(mode: DataHealth["mode"] | undefined) {
+  if (mode === "convex") return "Convex";
+  if (mode === "duckdb") return "DuckDB-WASM";
+  if (mode === "json-fallback") return "JSON fallback";
+  return "loading";
+}
+
+function findSignal(signals: ExternalSignalPanel[], label: string) {
+  return signals.find((signal) => signal.label.toLowerCase().includes(label.toLowerCase()));
+}
+
+function missingSignal(label: string): ExternalSignalPanel {
+  return {
+    label,
+    value: "Missing",
+    detail: "Convex cache is not linked or hydrated.",
+    status: "missing",
+  };
+}
+
+function statusLabel(signal: ExternalSignalPanel | undefined) {
+  return signal?.status === "live" ? "Live" : signal?.status === "cached" ? "Cached" : "Missing";
+}
+
+function summarizeCurves(curves: AggregatedCurvePoint[]): CurveStats {
+  const buy = curves.filter((point) => point.side === "Buy");
+  const sell = curves.filter((point) => point.side === "Sell");
+  const prices = curves.map((point) => point.unitPriceEurPerMwh);
+  const quantities = curves.map((point) => point.quantityMwh);
+
+  return {
+    totalPoints: curves.length,
+    buyPoints: buy.length,
+    sellPoints: sell.length,
+    buyMwh: buy.length ? buy.reduce((total, point) => total + point.quantityMwh, 0) : null,
+    sellMwh: sell.length ? sell.reduce((total, point) => total + point.quantityMwh, 0) : null,
+    lowPrice: minOrNull(prices),
+    highPrice: maxOrNull(prices),
+    lowQuantity: minOrNull(quantities),
+    highQuantity: maxOrNull(quantities),
+  };
+}
+
+function minOrNull(values: number[]) {
+  return values.length ? Math.min(...values) : null;
+}
+
+function maxOrNull(values: number[]) {
+  return values.length ? Math.max(...values) : null;
 }
 
 function scoreForAction(dispatch: DispatchPoint[], action: DispatchAction) {

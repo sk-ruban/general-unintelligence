@@ -40,9 +40,16 @@ export function booleanParam(searchParams: URLSearchParams, key: string) {
   return value === "1" || value.toLowerCase() === "true";
 }
 
+type DamPriceResolution = "interval" | "daily-average";
+
 export function stringParam(searchParams: URLSearchParams, key: string) {
   const value = searchParams.get(key);
   return value === null || value.trim() === "" ? undefined : value;
+}
+
+function priceResolutionParam(searchParams: URLSearchParams): DamPriceResolution | undefined {
+  const value = stringParam(searchParams, "resolution");
+  return value === "interval" || value === "daily-average" ? value : undefined;
 }
 
 export function ttfRefreshArgsFromSearch(searchParams: URLSearchParams) {
@@ -76,5 +83,6 @@ export function damDateRangeFromSearch(searchParams: URLSearchParams) {
     date: stringParam(searchParams, "date"),
     from: stringParam(searchParams, "from"),
     to: stringParam(searchParams, "to"),
+    resolution: priceResolutionParam(searchParams),
   };
 }

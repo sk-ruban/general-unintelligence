@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
-import { coverageFromFiles, dashboardFromSummaries, summarizePrices } from "./damSummary";
+import { coverageFromFiles, dashboardFromSummaries, type PricePoint, summarizePrices } from "./damSummary";
 
 const SOURCE = "henex-dam";
 const TIMEZONE = "Europe/Athens";
@@ -9,8 +9,10 @@ const DEFAULT_ROW_LIMIT = 5_000;
 const MAX_ROW_LIMIT = 20_000;
 const DEFAULT_PRICE_DAYS = 7;
 const MAX_PRICE_DAYS = 45;
+const MAX_DAILY_PRICE_DAYS = 2_000;
 const DEFAULT_DASHBOARD_DAYS = 7;
 const MAX_DASHBOARD_DAYS = 14;
+const PRICE_RESOLUTIONS = v.union(v.literal("interval"), v.literal("daily-average"));
 
 type DateRange = {
   from: string;
@@ -116,6 +118,42 @@ function compactPriceInterval(row: any) {
     version: row.version,
     rowHash: row.rowHash,
   };
+}
+
+function dailyAveragePricePoint(summary: any): PricePoint | null {
+  const priceSeries = Array.isArray(summary.priceSeries) ? summary.priceSeries : [];
+  const validPrices = priceSeries
+    .map((point: any) => point.mcpEurPerMwh)
+    .filter((value: unknown): value is number => typeof value === "number" && Number.isFinite(value));
+  const averagePrice =
+    typeof summary.spreadSummary?.averagePrice === "number"
+      ? summary.spreadSummary.averagePrice
+      : validPrices.length > 0
+        ? validPrices.reduce((sum: number, value: number) => sum + value, 0) / validPrices.length
+        : null;
+  if (averagePrice === null) {
+    return null;
+  }
+  const buyVolume = priceSeries.reduce((sum: number, point: any) => sum + (point.buyVolume ?? 0), 0);
+  const sellVolume = priceSeries.reduce((sum: number, point: any) => sum + (point.sellVolume ?? 0), 0);
+  const totalTrades = priceSeries.reduce((sum: number, point: any) => sum + (point.totalTrades ?? 0), 0);
+  return {
+    marketDate: summary.marketDate,
+    timestamp: `${summary.marketDate}T12:00:00+03:00`,
+    mtu: 48,
+    mcpEurPerMwh: Number(averagePrice.toFixed(3)),
+    buyVolume: Number(buyVolume.toFixed(3)),
+    sellVolume: Number(sellVolume.toFixed(3)),
+    totalTrades: Number(totalTrades.toFixed(3)),
+    sourceRowCount: priceSeries.length,
+  };
+}
+
+function dailyAveragePriceSeries(summaries: any[]) {
+  return summaries
+    .map(dailyAveragePricePoint)
+    .filter((point): point is PricePoint => point !== null)
+    .sort((left: any, right: any) => left.marketDate.localeCompare(right.marketDate));
 }
 
 async function filesForRange(
@@ -249,15 +287,34 @@ export const getDamPrices = query({
     date: v.optional(v.string()),
     from: v.optional(v.string()),
     to: v.optional(v.string()),
+    resolution: v.optional(PRICE_RESOLUTIONS),
     mtu: v.optional(v.number()),
     biddingZone: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const range = await selectDateRange(ctx, args, { defaultDays: DEFAULT_PRICE_DAYS, maxDays: MAX_PRICE_DAYS });
+    const resolution = args.resolution ?? "interval";
+    const range = await selectDateRange(ctx, args, {
+      defaultDays: DEFAULT_PRICE_DAYS,
+      maxDays: resolution === "daily-average" ? MAX_DAILY_PRICE_DAYS : MAX_PRICE_DAYS,
+    });
     const summaryLimit = boundedInteger(args.limit, 10_000, 1, 20_000);
     const shouldUseSummaries = args.mtu === undefined && args.biddingZone === undefined;
     const summaries = shouldUseSummaries ? await summariesForDates(ctx, range.dates) : null;
+    if (resolution === "daily-average") {
+      if (!summaries) {
+        throw new Error("Daily DAM summaries are not available for the requested range");
+      }
+      const priceSeries = dailyAveragePriceSeries(summaries).slice(0, summaryLimit);
+      return {
+        source: SOURCE,
+        range: { from: range.from, to: range.to },
+        count: priceSeries.length,
+        spreadSummary: summarizePrices(priceSeries),
+        rows: priceSeries,
+        summaryMode: "daily-average",
+      };
+    }
     if (summaries) {
       const priceSeries = summaries.flatMap((summary) => summary.priceSeries ?? []).slice(0, summaryLimit);
       return {

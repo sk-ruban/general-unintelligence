@@ -1,5 +1,12 @@
 export function getConvexSiteUrl() {
-  return cleanUrl(process.env.NEXT_PUBLIC_CONVEX_SITE_URL);
+  if (typeof window !== "undefined") {
+    return "/api/convex-http";
+  }
+  const siteUrl = cleanUrl(process.env.NEXT_PUBLIC_CONVEX_SITE_URL);
+  if (!siteUrl) {
+    return null;
+  }
+  return siteUrl;
 }
 
 export function getConvexUrl() {
