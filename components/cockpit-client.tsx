@@ -9,6 +9,7 @@ import {
   Database,
   Flame,
   Gauge,
+  MapIcon,
   RadioTower,
   Search,
   Zap,
@@ -27,6 +28,8 @@ import { loadExternalSignals } from "@/lib/convex-signals";
 import { getCurveDataClient } from "@/lib/curve-data/client";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import { getMarketDataClient } from "@/lib/market-data/client";
+import type { PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
+import { buildPortfolioState } from "@/lib/portfolio";
 import type {
   AggregatedCurvePoint,
   BatteryTwinConfig,
@@ -36,10 +39,11 @@ import type {
   ExternalSignalPanel,
 } from "@/lib/types";
 
-type View = "control" | "signals" | "curves" | "twin" | "scenarios" | "health";
+type View = "control" | "portfolio" | "signals" | "curves" | "twin" | "scenarios" | "health";
 
 const nav: { id: View; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
+  { id: "portfolio", label: "Portfolio Map", icon: MapIcon },
   { id: "signals", label: "Weather & Gas", icon: CloudSun },
   { id: "curves", label: "Market Curves", icon: Activity },
   { id: "twin", label: "Battery Twin", icon: BatteryCharging },
@@ -71,6 +75,7 @@ export function CockpitClient() {
   const [health, setHealth] = useState<DataHealth | null>(null);
   const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
   const [signals, setSignals] = useState<ExternalSignalPanel[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState("kozani-north");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [twin, setTwin] = useState<BatteryTwinConfig>(defaultBatteryTwin);
 
@@ -158,6 +163,9 @@ export function CockpitClient() {
   const highPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
   const curveStats = useMemo(() => summarizeCurves(curves), [curves]);
   const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);
+  const portfolio = useMemo(() => buildPortfolioState(prices), [prices]);
+  const selectedSite =
+    portfolio.sites.find((site) => site.id === selectedSiteId) ?? portfolio.sites[0] ?? null;
 
   return (
     <main className="h-screen overflow-hidden bg-[#050506] text-zinc-100">
@@ -214,7 +222,17 @@ export function CockpitClient() {
                     lowPrice={lowPrice}
                     highPrice={highPrice}
                     signals={signals}
+                    portfolioSummary={portfolio.summary}
                     loading={loading}
+                  />
+                ) : null}
+                {view === "portfolio" ? (
+                  <PortfolioView
+                    portfolioSummary={portfolio.summary}
+                    selectedSite={selectedSite}
+                    selectedSiteId={selectedSite?.id ?? selectedSiteId}
+                    sites={portfolio.sites}
+                    onSelectSite={setSelectedSiteId}
                   />
                 ) : null}
                 {view === "signals" ? <SignalsView signals={signals} /> : null}
@@ -306,6 +324,7 @@ function ControlRoom({
   lowPrice,
   highPrice,
   signals,
+  portfolioSummary,
   loading,
 }: {
   prices: DamPricePoint[];
@@ -318,6 +337,7 @@ function ControlRoom({
   lowPrice: number | null;
   highPrice: number | null;
   signals: ExternalSignalPanel[];
+  portfolioSummary: PortfolioSummary;
   loading: boolean;
 }) {
   return (
@@ -336,6 +356,7 @@ function ControlRoom({
           detail="Charge + discharge"
         />
       </div>
+      <PortfolioSummaryStrip summary={portfolioSummary} />
       <SignalDeck signals={signals} />
       <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
         <Panel>
@@ -368,6 +389,266 @@ function ControlRoom({
       </div>
     </div>
   );
+}
+
+function PortfolioSummaryStrip({ summary }: { summary: PortfolioSummary }) {
+  return (
+    <div className="grid gap-2 md:grid-cols-4">
+      <Metric label="Fleet capacity" value={formatMwh(summary.capacityMwh)} detail="Demo Greek portfolio" />
+      <Metric label="Charging" value={formatMw(summary.chargingMw)} detail="Current interval" />
+      <Metric label="Discharging" value={formatMw(summary.dischargingMw)} detail="Current interval" />
+      <Metric
+        label="Average SoC"
+        value={formatPercent(summary.averageSocPercent === null ? null : summary.averageSocPercent / 100)}
+        detail={`${summary.activeSites} active sites`}
+      />
+    </div>
+  );
+}
+
+function PortfolioView({
+  sites,
+  selectedSite,
+  selectedSiteId,
+  portfolioSummary,
+  onSelectSite,
+}: {
+  sites: PortfolioSiteState[];
+  selectedSite: PortfolioSiteState | null;
+  selectedSiteId: string;
+  portfolioSummary: PortfolioSummary;
+  onSelectSite: (siteId: string) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      <PortfolioSummaryStrip summary={portfolioSummary} />
+      <div className="grid gap-3 xl:grid-cols-[1.45fr_0.95fr]">
+        <Panel>
+          <PanelHeader title="Greek Battery Portfolio" kicker="Demo BESS sites · current dispatch state" />
+          <GreeceBatteryMap selectedSiteId={selectedSiteId} sites={sites} onSelectSite={onSelectSite} />
+        </Panel>
+        <SiteDetailPanel site={selectedSite} />
+      </div>
+      <Panel>
+        <PanelHeader title="Site Tape" kicker="Fleet state by asset" />
+        <div className="dense-scrollbar max-h-[340px] overflow-auto">
+          <table className="w-full table-fixed text-left text-[11px]">
+            <thead className="sticky top-0 bg-zinc-950 text-zinc-500 uppercase">
+              <tr>
+                <th className="h-7 px-2">Site</th>
+                <th className="h-7 px-2">Region</th>
+                <th className="h-7 px-2">Action</th>
+                <th className="h-7 px-2">MW</th>
+                <th className="h-7 px-2">SoC</th>
+                <th className="h-7 px-2">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sites.map((site) => (
+                <tr
+                  key={site.id}
+                  className={`cursor-pointer border-white/5 border-t transition hover:bg-white/[0.04] ${
+                    selectedSiteId === site.id ? "bg-cyan-300/[0.06]" : ""
+                  }`}
+                  onClick={() => onSelectSite(site.id)}
+                >
+                  <td className="h-8 truncate px-2 text-zinc-200">{site.name}</td>
+                  <td className="h-8 truncate px-2 text-zinc-500">{site.region}</td>
+                  <td className={`h-8 px-2 font-semibold uppercase ${actionTextClass(site.current?.action)}`}>
+                    {site.current?.action ?? "idle"}
+                  </td>
+                  <td className="h-8 px-2 mono">{formatMw(site.current?.mw ?? 0)}</td>
+                  <td className="h-8 px-2 mono">{formatPercent(site.socPercent / 100)}</td>
+                  <td className="h-8 px-2 mono">{formatEuro(site.summary.valueEur)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function GreeceBatteryMap({
+  sites,
+  selectedSiteId,
+  onSelectSite,
+}: {
+  sites: PortfolioSiteState[];
+  selectedSiteId: string;
+  onSelectSite: (siteId: string) => void;
+}) {
+  return (
+    <div className="relative min-h-[520px] overflow-hidden bg-black/30">
+      <svg
+        aria-label="Greece portfolio map"
+        className="absolute inset-0 h-full w-full"
+        preserveAspectRatio="xMidYMid meet"
+        viewBox="0 0 420 520"
+      >
+        <rect width="420" height="520" fill="#050506" />
+        <path
+          d="M157 67 195 48 243 57 278 87 268 125 290 156 271 197 286 226 258 267 282 302 268 354 239 363 219 336 191 354 168 328 181 291 153 258 167 223 139 190 154 151 134 116Z"
+          fill="#12151b"
+          stroke="#2dd4bf"
+          strokeOpacity="0.34"
+          strokeWidth="2"
+        />
+        <path
+          d="M205 364 240 386 235 425 205 455 167 444 145 411 166 377Z"
+          fill="#12151b"
+          stroke="#2dd4bf"
+          strokeOpacity="0.28"
+          strokeWidth="2"
+        />
+        <path
+          d="M292 245 315 262 303 294 278 284Z M317 330 348 346 337 382 303 372Z M118 292 139 305 126 337 102 320Z M315 151 337 167 325 194 300 181Z"
+          fill="#101216"
+          stroke="#71717a"
+          strokeOpacity="0.32"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M83 82H337M64 162H356M58 242H362M73 322H347M103 402H317"
+          stroke="#ffffff"
+          strokeOpacity="0.045"
+        />
+        <path d="M120 39V474M190 26V489M260 39V474M330 78V438" stroke="#ffffff" strokeOpacity="0.045" />
+      </svg>
+      <div className="absolute inset-0">
+        {sites.map((site) => {
+          const position = projectSite(site);
+          const selected = selectedSiteId === site.id;
+          return (
+            <button
+              key={site.id}
+              className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center outline-none"
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+              title={site.name}
+              type="button"
+              onClick={() => onSelectSite(site.id)}
+            >
+              <span
+                className={`flex h-9 w-9 items-center justify-center border bg-black/80 shadow-[0_0_24px_rgba(0,0,0,0.7)] transition ${
+                  selected ? "scale-110 border-white" : markerClass(site.current?.action)
+                }`}
+              >
+                <span
+                  className={`h-3.5 w-3.5 ${site.current?.action === "idle" ? "bg-zinc-500" : "bg-current"}`}
+                  style={{ opacity: 0.45 + site.socPercent / 180 }}
+                />
+              </span>
+              <span className="pointer-events-none absolute top-10 hidden min-w-32 border border-white/10 bg-zinc-950/95 px-2 py-1 text-left text-[10px] shadow-xl md:block">
+                <span className="block truncate text-zinc-200">{site.name}</span>
+                <span className={`block uppercase ${actionTextClass(site.current?.action)}`}>
+                  {site.current?.action ?? "idle"} · {formatPercent(site.socPercent / 100)}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="absolute right-3 bottom-3 grid gap-1 border border-white/10 bg-black/70 p-2 text-[10px] text-zinc-500 uppercase">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-cyan-300" /> Charging
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-orange-300" /> Discharging
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 bg-zinc-500" /> Idle
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SiteDetailPanel({ site }: { site: PortfolioSiteState | null }) {
+  if (!site) {
+    return (
+      <Panel>
+        <PanelHeader title="Site Detail" kicker="No site selected" />
+        <div className="p-3 text-[12px] text-zinc-500">Portfolio data is loading.</div>
+      </Panel>
+    );
+  }
+  const nextAction = site.schedule.find((point) => point.action !== "idle");
+  const currentAction = site.current?.action ?? "idle";
+  return (
+    <Panel>
+      <PanelHeader title={site.name} kicker={`${site.region} · ${site.constraint}`} />
+      <div className="grid gap-3 p-3">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
+          <DetailMetric
+            label="Current action"
+            value={currentAction.toUpperCase()}
+            detail={site.current?.reason ?? "No dispatch"}
+          />
+          <DetailMetric
+            label="Power"
+            value={formatMw(site.current?.mw ?? 0)}
+            detail={site.current?.interval.athensLabel ?? "n/a"}
+          />
+          <DetailMetric
+            label="State of charge"
+            value={formatPercent(site.socPercent / 100)}
+            detail={formatMwh(site.current?.socMwh ?? site.initialSocMwh)}
+          />
+          <DetailMetric
+            label="Day value"
+            value={formatEuro(site.summary.valueEur)}
+            detail="Local deterministic schedule"
+          />
+        </div>
+        <div className="border border-white/10 bg-black/25 p-3">
+          <div className="flex items-center justify-between text-[10px] text-zinc-500 uppercase">
+            <span>SoC band</span>
+            <span className="mono">
+              {formatMwh(site.minSocMwh)} / {formatMwh(site.maxSocMwh)}
+            </span>
+          </div>
+          <div className="mt-2 h-2 bg-white/10">
+            <div className="h-full bg-cyan-300" style={{ width: `${site.socPercent}%` }} />
+          </div>
+        </div>
+        <div className="grid gap-1 border border-white/10 bg-black/25 p-3 text-[11px]">
+          <div className="text-[10px] text-zinc-500 uppercase">Next useful interval</div>
+          <div className="mono text-zinc-100">
+            {nextAction
+              ? `${nextAction.interval.athensLabel} · ${nextAction.action.toUpperCase()}`
+              : "No action"}
+          </div>
+          <div className="text-zinc-500">
+            {nextAction?.reason ?? "No non-idle interval in the selected day."}
+          </div>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function projectSite(site: Pick<PortfolioSiteState, "latitude" | "longitude">) {
+  const minLon = 19.2;
+  const maxLon = 29.8;
+  const minLat = 34.3;
+  const maxLat = 41.4;
+  return {
+    x: 12 + ((site.longitude - minLon) / (maxLon - minLon)) * 76,
+    y: 8 + ((maxLat - site.latitude) / (maxLat - minLat)) * 84,
+  };
+}
+
+function markerClass(action: DispatchPoint["action"] | undefined) {
+  if (action === "charge") return "border-cyan-300 text-cyan-300";
+  if (action === "discharge") return "border-orange-300 text-orange-300";
+  return "border-zinc-600 text-zinc-500";
+}
+
+function actionTextClass(action: DispatchPoint["action"] | undefined) {
+  if (action === "charge") return "text-cyan-300";
+  if (action === "discharge") return "text-orange-300";
+  return "text-zinc-500";
 }
 
 function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
@@ -724,6 +1005,16 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
       <div className="mono mt-1 truncate font-medium text-base text-zinc-100">{value}</div>
       <div className="mt-1 truncate text-[11px] text-zinc-500">{detail}</div>
     </Panel>
+  );
+}
+
+function DetailMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="border border-white/10 bg-white/[0.035] p-3">
+      <div className="text-[10px] text-zinc-500 uppercase">{label}</div>
+      <div className="mono mt-1 truncate font-medium text-base text-zinc-100">{value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{detail}</div>
+    </div>
   );
 }
 
