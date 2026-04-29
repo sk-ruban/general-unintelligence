@@ -274,7 +274,6 @@ export function CockpitClient() {
                   <PortfolioView
                     gridFlows={portfolio.grid.flows}
                     gridNodes={portfolio.grid.nodes}
-                    portfolioSummary={portfolio.summary}
                     selectedSite={selectedSite}
                     selectedSiteId={selectedSite?.id ?? selectedSiteId}
                     sites={portfolio.sites}
@@ -695,7 +694,6 @@ function PortfolioView({
   sites,
   selectedSite,
   selectedSiteId,
-  portfolioSummary,
   onSelectSite,
 }: {
   gridFlows: ReturnType<typeof buildPortfolioState>["grid"]["flows"];
@@ -703,18 +701,13 @@ function PortfolioView({
   sites: PortfolioSiteState[];
   selectedSite: PortfolioSiteState | null;
   selectedSiteId: string;
-  portfolioSummary: PortfolioSummary;
   onSelectSite: (siteId: string) => void;
 }) {
   return (
     <div className="grid gap-4">
-      <PortfolioSummaryStrip summary={portfolioSummary} />
       <div className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
         <Panel>
-          <PanelHeader
-            title="Greek Grid Flow Manager"
-            kicker="Batteries · supply nodes · interconnector flows"
-          />
+          <PanelHeader title="Greek Grid Flow Manager" />
           <GridFlowMap
             flows={gridFlows}
             nodes={gridNodes}
