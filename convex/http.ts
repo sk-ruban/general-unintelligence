@@ -125,6 +125,139 @@ function weatherFetchSelectorFromSearch(searchParams: URLSearchParams) {
   };
 }
 
+function damDateRangeFromSearch(searchParams: URLSearchParams) {
+  return {
+    date: stringParam(searchParams, "date"),
+    from: stringParam(searchParams, "from"),
+    to: stringParam(searchParams, "to"),
+  };
+}
+
+http.route({
+  path: "/market/dam/catalog",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(
+      await ctx.runQuery(api.dam.getDamCatalog, {
+        includeRecentFiles: booleanParam(searchParams, "includeRecentFiles"),
+        fileLimit: numberParam(searchParams, "fileLimit"),
+      }),
+    );
+  }),
+});
+
+http.route({
+  path: "/market/dam/catalog",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/market/dam/files",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(
+      await ctx.runQuery(api.dam.getDamFiles, {
+        sourceCode: stringParam(searchParams, "sourceCode") ?? stringParam(searchParams, "source"),
+        from: stringParam(searchParams, "from"),
+        to: stringParam(searchParams, "to"),
+        status: stringParam(searchParams, "status"),
+        limit: numberParam(searchParams, "limit"),
+      }),
+    );
+  }),
+});
+
+http.route({
+  path: "/market/dam/files",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/market/dam/prices",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(
+      await ctx.runQuery(api.dam.getDamPrices, {
+        ...damDateRangeFromSearch(searchParams),
+        limit: numberParam(searchParams, "limit"),
+      }),
+    );
+  }),
+});
+
+http.route({
+  path: "/market/dam/prices",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/market/dam/results",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(
+      await ctx.runQuery(api.dam.getDamMarketResults, {
+        ...damDateRangeFromSearch(searchParams),
+        mtu: numberParam(searchParams, "mtu"),
+        side: stringParam(searchParams, "side"),
+        biddingZone: stringParam(searchParams, "biddingZone"),
+        asset: stringParam(searchParams, "asset"),
+        classification: stringParam(searchParams, "classification"),
+        limit: numberParam(searchParams, "limit"),
+      }),
+    );
+  }),
+});
+
+http.route({
+  path: "/market/dam/results",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/market/dam/curves",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(
+      await ctx.runQuery(api.dam.getDamAggregatedCurves, {
+        ...damDateRangeFromSearch(searchParams),
+        mtu: numberParam(searchParams, "mtu"),
+        side: stringParam(searchParams, "side"),
+        limit: numberParam(searchParams, "limit"),
+      }),
+    );
+  }),
+});
+
+http.route({
+  path: "/market/dam/curves",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/market/dam/dashboard",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const searchParams = new URL(request.url).searchParams;
+    return jsonResponse(await ctx.runQuery(api.dam.getDamDashboard, damDateRangeFromSearch(searchParams)));
+  }),
+});
+
+http.route({
+  path: "/market/dam/dashboard",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
 http.route({
   path: "/weather/open-meteo/latest",
   method: "GET",

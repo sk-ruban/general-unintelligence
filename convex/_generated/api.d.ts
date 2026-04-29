@@ -9,6 +9,7 @@
  */
 
 import type * as crons from "../crons.js";
+import type * as dam from "../dam.js";
 import type * as eex from "../eex.js";
 import type * as http from "../http.js";
 import type * as iceTtf from "../iceTtf.js";
@@ -22,6 +23,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
+  dam: typeof dam;
   eex: typeof eex;
   http: typeof http;
   iceTtf: typeof iceTtf;

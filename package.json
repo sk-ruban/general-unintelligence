@@ -14,6 +14,7 @@
     "data:dam": "python3 scripts/build_dam_static_data.py",
     "convex:dev": "convex dev",
     "convex:codegen": "convex codegen",
+    "dam:seed": "python3 scripts/seed_dam_to_convex.py",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
