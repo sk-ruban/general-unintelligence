@@ -1,7 +1,18 @@
 "use client";
 
 import { Command } from "cmdk";
-import { Activity, BatteryCharging, Braces, Database, Gauge, RadioTower, Search, Zap } from "lucide-react";
+import {
+  Activity,
+  BatteryCharging,
+  Braces,
+  CloudSun,
+  Database,
+  Flame,
+  Gauge,
+  RadioTower,
+  Search,
+  Zap,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import { PanelGroup, PanelResizeHandle, Panel as ResizePanel } from "react-resizable-panels";
@@ -25,10 +36,11 @@ import type {
   ExternalSignalPanel,
 } from "@/lib/types";
 
-type View = "control" | "curves" | "twin" | "scenarios" | "health";
+type View = "control" | "signals" | "curves" | "twin" | "scenarios" | "health";
 
 const nav: { id: View; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
+  { id: "signals", label: "Weather & Gas", icon: CloudSun },
   { id: "curves", label: "Market Curves", icon: Activity },
   { id: "twin", label: "Battery Twin", icon: BatteryCharging },
   { id: "scenarios", label: "Scenarios", icon: Braces },
@@ -205,6 +217,7 @@ export function CockpitClient() {
                     loading={loading}
                   />
                 ) : null}
+                {view === "signals" ? <SignalsView signals={signals} /> : null}
                 {view === "curves" ? (
                   <MarketCurves
                     curves={curves}
@@ -323,6 +336,7 @@ function ControlRoom({
           detail="Charge + discharge"
         />
       </div>
+      <SignalDeck signals={signals} />
       <div className="grid gap-3 xl:grid-cols-[1.6fr_1fr]">
         <Panel>
           <PanelHeader
@@ -352,6 +366,62 @@ function ControlRoom({
           <SignalCard key={signal.label} signal={signal} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
+  const weather = findSignal(signals, "Weather");
+  const ttf = findSignal(signals, "TTF gas");
+  const eex = findSignal(signals, "EEX");
+  return (
+    <div className="grid gap-2 md:grid-cols-[1fr_1fr_0.8fr]">
+      <SignalSpotlight accent="cyan" icon={CloudSun} kicker="Open-Meteo" signal={weather} title="Weather" />
+      <SignalSpotlight accent="orange" icon={Flame} kicker="ICE" signal={ttf} title="TTF gas" />
+      <SignalSpotlight accent="zinc" icon={Activity} kicker="EEX" signal={eex} title="Forward context" />
+    </div>
+  );
+}
+
+function SignalsView({ signals }: { signals: ExternalSignalPanel[] }) {
+  const weather = findSignal(signals, "Weather");
+  const ttf = findSignal(signals, "TTF gas");
+  const eex = findSignal(signals, "EEX");
+  return (
+    <div className="grid gap-3">
+      <SignalDeck signals={signals} />
+      <div className="grid gap-3 xl:grid-cols-2">
+        <Panel>
+          <PanelHeader title="Weather Driver" kicker="Open-Meteo Greek 15-minute grid" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            <Metric
+              label="Solar signal"
+              value={weather?.value ?? "Missing"}
+              detail={weather?.detail ?? "No cache"}
+            />
+            <Metric label="Status" value={statusLabel(weather)} detail="Weather cache" />
+          </div>
+        </Panel>
+        <Panel>
+          <PanelHeader title="Gas Driver" kicker="ICE Dutch TTF fuel-cost proxy" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            <Metric
+              label="Thermal proxy"
+              value={ttf?.value ?? "Missing"}
+              detail={ttf?.detail ?? "No cache"}
+            />
+            <Metric label="Status" value={statusLabel(ttf)} detail="TTF cache" />
+          </div>
+        </Panel>
+      </div>
+      <Panel>
+        <PanelHeader title="Signal Tape" kicker="Convex HTTP surfaces" />
+        <div className="grid gap-2 p-3 md:grid-cols-3">
+          <SignalCard signal={weather ?? missingSignal("Weather")} />
+          <SignalCard signal={ttf ?? missingSignal("TTF gas")} />
+          <SignalCard signal={eex ?? missingSignal("EEX context")} />
+        </div>
+      </Panel>
     </div>
   );
 }
@@ -655,6 +725,60 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
       <div className="mt-1 truncate text-[11px] text-zinc-500">{detail}</div>
     </Panel>
   );
+}
+
+function SignalSpotlight({
+  signal,
+  title,
+  kicker,
+  icon: Icon,
+  accent,
+}: {
+  signal: ExternalSignalPanel | undefined;
+  title: string;
+  kicker: string;
+  icon: React.ComponentType<{ className?: string }>;
+  accent: "cyan" | "orange" | "zinc";
+}) {
+  const resolved = signal ?? missingSignal(title);
+  const accentClass =
+    accent === "cyan"
+      ? "border-cyan-300/25 bg-cyan-300/[0.055] text-cyan-200"
+      : accent === "orange"
+        ? "border-orange-300/25 bg-orange-300/[0.055] text-orange-200"
+        : "border-zinc-300/15 bg-white/[0.035] text-zinc-200";
+  return (
+    <Panel className="p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10px] text-zinc-500 uppercase">{kicker}</div>
+          <div className="mt-1 font-semibold text-[12px] text-zinc-100 uppercase">{title}</div>
+        </div>
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center border ${accentClass}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="mono mt-3 truncate text-lg text-zinc-100">{resolved.value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{resolved.detail}</div>
+    </Panel>
+  );
+}
+
+function findSignal(signals: ExternalSignalPanel[], label: string) {
+  return signals.find((signal) => signal.label.toLowerCase().includes(label.toLowerCase()));
+}
+
+function missingSignal(label: string): ExternalSignalPanel {
+  return {
+    label,
+    value: "Missing",
+    detail: "Convex cache is not linked or hydrated.",
+    status: "missing",
+  };
+}
+
+function statusLabel(signal: ExternalSignalPanel | undefined) {
+  return signal?.status === "live" ? "Live" : signal?.status === "cached" ? "Cached" : "Missing";
 }
 
 function summarizeCurves(curves: AggregatedCurvePoint[]): CurveStats {

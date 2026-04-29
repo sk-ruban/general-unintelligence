@@ -1,5 +1,8 @@
+import { DateTime } from "luxon";
 import type { ExternalSignalPanel } from "@/lib/types";
 import { formatEurPerMwh } from "./format";
+
+const MARKET_TIME_ZONE = "Europe/Athens";
 
 type SignalResult = {
   panels: ExternalSignalPanel[];
@@ -66,7 +69,7 @@ function weatherPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
     label: "Weather",
     value: typeof score === "number" ? `${Math.round(score * 100)}% solar surplus` : "Cached",
     detail: result.value?.fetch?.fetchedAtUtc
-      ? `Fetched ${result.value.fetch.fetchedAtUtc}`
+      ? `Fetched ${formatSignalTime(result.value.fetch.fetchedAtUtc)}`
       : "Open-Meteo panel ready",
     status: "cached",
   };
@@ -109,4 +112,15 @@ function eexPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
     detail: result.value?.fetch?.selectedGreekPowerMaturity ?? "Greek forward context",
     status: "cached",
   };
+}
+
+function formatSignalTime(value: unknown) {
+  if (typeof value !== "string") {
+    return "recently";
+  }
+  const parsed = DateTime.fromISO(value, { zone: "utc" });
+  if (!parsed.isValid) {
+    return "recently";
+  }
+  return parsed.setZone(MARKET_TIME_ZONE).toFormat("dd LLL HH:mm 'Athens'");
 }
