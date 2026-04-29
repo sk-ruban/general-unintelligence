@@ -8,17 +8,18 @@ import type { DamPricePoint } from "@/lib/types";
 
 const DAILY_AVERAGE_THRESHOLD_DAYS = 95;
 
-export function PriceChart({ data }: { data: DamPricePoint[] }) {
+export function PriceChart({ data, height = 300 }: { data: DamPricePoint[]; height?: number }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const spanDaysRef = useRef(1);
+  const initialHeightRef = useRef(height);
 
   useEffect(() => {
     if (!containerRef.current) return;
     const chart = createChart(containerRef.current, {
       autoSize: true,
-      height: 300,
+      height: initialHeightRef.current,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
         textColor: "#9ca3af",
@@ -68,7 +69,7 @@ export function PriceChart({ data }: { data: DamPricePoint[] }) {
     chartRef.current?.timeScale().fitContent();
   }, [data]);
 
-  return <div ref={containerRef} className="h-[300px] w-full" />;
+  return <div ref={containerRef} className="w-full" style={{ height }} />;
 }
 
 export function priceChartSeries(data: DamPricePoint[]) {

@@ -8,7 +8,11 @@ export function Panel({
 }: PropsWithChildren<{
   className?: string;
 }>) {
-  return <section className={cn("border border-white/10 bg-zinc-950/68", className)}>{children}</section>;
+  return (
+    <section className={cn("flex flex-col rounded border border-white/10 bg-[var(--bg-panel)]", className)}>
+      {children}
+    </section>
+  );
 }
 
 export function PanelHeader({
@@ -21,9 +25,9 @@ export function PanelHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-9 items-center justify-between border-white/10 border-b px-3">
+    <div className="flex min-h-9 items-center justify-between border-white/10 border-b px-3 py-1.5">
       <div className="min-w-0">
-        <div className="truncate font-semibold text-[12px] text-zinc-100 uppercase tracking-normal">
+        <div className="mono truncate font-medium text-[11px] text-zinc-500 uppercase tracking-[0.05em]">
           {title}
         </div>
         {kicker ? <div className="truncate text-[10px] text-zinc-500">{kicker}</div> : null}

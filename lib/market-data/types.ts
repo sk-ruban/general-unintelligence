@@ -1,4 +1,4 @@
-import type { DamPricePoint, DataHealth } from "@/lib/types";
+import type { AggregatedCurvePoint, DamPricePoint, DataHealth } from "@/lib/types";
 
 export type DayRange = {
   from?: string;
@@ -9,6 +9,7 @@ export type MarketDataApi = {
   initializeMarketDb: () => Promise<DataHealth>;
   getAvailableMarketDays: () => Promise<string[]>;
   getDamPriceSeries: (dayRange?: DayRange) => Promise<DamPricePoint[]>;
+  getCurveSlice: (marketDate: string, mtu: number) => Promise<AggregatedCurvePoint[]>;
   getDataHealth: () => Promise<DataHealth>;
 };
 

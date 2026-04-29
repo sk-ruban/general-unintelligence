@@ -1,7 +1,9 @@
 "use client";
 
 import * as Comlink from "comlink";
-import { createConvexMarketDataClient } from "./convex-client";
+import { getConvexSiteUrl } from "@/lib/convex-url";
+import { getJsonCurveSlice } from "@/lib/curve-data/json-fallback";
+import { createConvexHttpMarketDataClient } from "./convex-http";
 import {
   getJsonDataHealth,
   getJsonMarketDays,
@@ -19,17 +21,15 @@ export function getMarketDataClient(): Promise<MarketDataApi> {
 }
 
 async function createClient(): Promise<MarketDataApi> {
-  const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  const staticClient = await createStaticClient();
+  const convexSiteUrl = getConvexSiteUrl();
   if (convexSiteUrl) {
-    try {
-      const convexClient = createConvexMarketDataClient(convexSiteUrl);
-      await convexClient.initializeMarketDb();
-      return convexClient;
-    } catch (error) {
-      console.warn("Convex DAM client failed; using static market data.", error);
-    }
+    return createConvexHttpMarketDataClient(convexSiteUrl, staticClient);
   }
+  return staticClient;
+}
 
+async function createStaticClient(): Promise<MarketDataApi> {
   if (typeof Worker === "undefined") {
     return jsonClient;
   }
@@ -38,7 +38,13 @@ async function createClient(): Promise<MarketDataApi> {
     const worker = new Worker(new URL("./market-worker.ts", import.meta.url), { type: "module" });
     const remote = Comlink.wrap<MarketWorkerApi>(worker);
     await remote.initializeMarketDb();
-    return remote;
+    return {
+      initializeMarketDb: remote.initializeMarketDb,
+      getAvailableMarketDays: remote.getAvailableMarketDays,
+      getDamPriceSeries: remote.getDamPriceSeries,
+      getDataHealth: remote.getDataHealth,
+      getCurveSlice: getJsonCurveSlice,
+    };
   } catch (error) {
     console.warn("Market worker failed; using JSON fallback.", error);
     await initializeJsonMarketData();
@@ -50,5 +56,6 @@ const jsonClient: MarketDataApi = {
   initializeMarketDb: initializeJsonMarketData,
   getAvailableMarketDays: getJsonMarketDays,
   getDamPriceSeries: getJsonPriceSeries,
+  getCurveSlice: getJsonCurveSlice,
   getDataHealth: getJsonDataHealth,
 };

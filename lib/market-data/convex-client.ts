@@ -63,6 +63,9 @@ export function createConvexMarketDataClient(siteUrl: string): MarketDataApi {
         .filter((point): point is DamPricePoint => point !== null)
         .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc));
     },
+    async getCurveSlice() {
+      return [];
+    },
     async getDataHealth() {
       const loadedCatalog = await loadCatalog();
       return healthFromCatalog(loadedCatalog);

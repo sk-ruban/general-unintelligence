@@ -3,7 +3,7 @@
 import ReactECharts from "echarts-for-react";
 import type { AggregatedCurvePoint } from "@/lib/types";
 
-export function CurveChart({ data }: { data: AggregatedCurvePoint[] }) {
+export function CurveChart({ data, height = 290 }: { data: AggregatedCurvePoint[]; height?: number }) {
   const buy = data
     .filter((point) => point.side === "Buy")
     .slice(0, 140)
@@ -15,7 +15,7 @@ export function CurveChart({ data }: { data: AggregatedCurvePoint[] }) {
 
   return (
     <ReactECharts
-      style={{ height: 290, width: "100%" }}
+      style={{ height, width: "100%" }}
       option={{
         backgroundColor: "transparent",
         animation: false,

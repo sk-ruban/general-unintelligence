@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { ExternalSignalPanel } from "@/lib/types";
+import { getConvexSiteUrl } from "./convex-url";
 import { formatEurPerMwh } from "./format";
 
 const MARKET_TIME_ZONE = "Europe/Athens";
@@ -10,7 +11,7 @@ type SignalResult = {
 };
 
 export async function loadExternalSignals(): Promise<SignalResult> {
-  const siteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL ?? null;
+  const siteUrl = getConvexSiteUrl();
   if (!siteUrl) {
     return {
       siteUrl,
@@ -27,9 +28,17 @@ export async function loadExternalSignals(): Promise<SignalResult> {
   }
 
   const [weather, ttf, eex] = await Promise.allSettled([
-    fetchJson(`${siteUrl}/weather/open-meteo/panel`),
-    fetchJson(`${siteUrl}/fuel/ttf/latest`),
-    fetchJson(`${siteUrl}/market/eex/context/latest`),
+    fetchHydratedJson(siteUrl, "/weather/open-meteo/panel", "/weather/open-meteo/refresh", {
+      maxAgeMinutes: 60,
+      forecastSteps: 96,
+      pastSteps: 24,
+    }),
+    fetchHydratedJson(siteUrl, "/fuel/ttf/latest", "/fuel/ttf/refresh", {
+      maxAgeMinutes: 60,
+    }),
+    fetchHydratedJson(siteUrl, "/market/eex/context/latest", "/market/eex/context/refresh", {
+      maxAgeMinutes: 60,
+    }),
   ]);
 
   return {
@@ -38,12 +47,46 @@ export async function loadExternalSignals(): Promise<SignalResult> {
   };
 }
 
-async function fetchJson(url: string) {
-  const response = await fetch(url, { cache: "no-store" });
+async function fetchHydratedJson(
+  siteUrl: string,
+  readPath: string,
+  refreshPath: string,
+  refreshBody: Record<string, unknown>,
+) {
+  const readUrl = `${siteUrl}${readPath}`;
+  try {
+    return await fetchJson(readUrl);
+  } catch (readError) {
+    await fetchJson(`${siteUrl}${refreshPath}`, {
+      body: JSON.stringify(refreshBody),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    try {
+      return await fetchJson(readUrl);
+    } catch (retryError) {
+      throw new Error(`${errorMessage(retryError)} after refresh attempt (${errorMessage(readError)})`);
+    }
+  }
+}
+
+async function fetchJson(url: string, init?: RequestInit) {
+  const response = await fetch(url, { cache: "no-store", ...init });
   if (!response.ok) {
-    throw new Error(`${url} returned ${response.status}`);
+    let detail = "";
+    try {
+      const payload = await response.json();
+      detail = typeof payload?.error === "string" ? `: ${payload.error}` : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(`${url} returned ${response.status}${detail}`);
   }
   return await response.json();
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function weatherPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
@@ -51,7 +94,7 @@ function weatherPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
     return {
       label: "Weather",
       value: "Missing",
-      detail: "Open-Meteo cache is not hydrated yet.",
+      detail: `Open-Meteo refresh failed: ${errorMessage(result.reason)}`,
       status: "missing",
     };
   }
@@ -80,7 +123,7 @@ function ttfPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
     return {
       label: "TTF gas",
       value: "Missing",
-      detail: "ICE TTF cache is not hydrated yet.",
+      detail: `ICE TTF refresh failed: ${errorMessage(result.reason)}`,
       status: "missing",
     };
   }
@@ -99,7 +142,7 @@ function eexPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
     return {
       label: "EEX context",
       value: "Missing",
-      detail: "EEX context cache is not hydrated yet.",
+      detail: `EEX refresh failed: ${errorMessage(result.reason)}`,
       status: "missing",
     };
   }

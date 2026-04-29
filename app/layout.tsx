@@ -8,8 +8,12 @@ import "./globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Battery Intelligence OS",
+  title: "Prometheus",
   description: "Greek DAM battery intelligence cockpit",
+  icons: {
+    icon: "/prometheus-icon.png",
+    apple: "/prometheus-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

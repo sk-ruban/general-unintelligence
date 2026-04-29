@@ -140,10 +140,7 @@ http.route({
       await ctx.runQuery(api.dam.getDamMarketResults, {
         ...damDateRangeFromSearch(searchParams),
         mtu: numberParam(searchParams, "mtu"),
-        side: stringParam(searchParams, "side"),
         biddingZone: stringParam(searchParams, "biddingZone"),
-        asset: stringParam(searchParams, "asset"),
-        classification: stringParam(searchParams, "classification"),
         limit: numberParam(searchParams, "limit"),
       }),
     );
@@ -496,7 +493,10 @@ http.route({
         })
       : await ctx.runQuery(api.iceTtf.getDashboardPanel, {});
     if (!data) {
-      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+      return jsonResponse(
+        { error: "No cached ICE TTF data is available yet." },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
     }
     return jsonResponse(
       {
@@ -546,7 +546,10 @@ http.route({
         })
       : await ctx.runQuery(api.iceTtf.getContracts, {});
     if (!data) {
-      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+      return jsonResponse(
+        { error: "No cached ICE TTF data is available yet." },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
     }
     return jsonResponse(
       {
@@ -587,7 +590,10 @@ http.route({
         })
       : await ctx.runQuery(api.iceTtf.getIntraday, {});
     if (!data) {
-      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+      return jsonResponse(
+        { error: "No cached ICE TTF data is available yet." },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
     }
     return jsonResponse(
       {
@@ -628,7 +634,10 @@ http.route({
         })
       : await ctx.runQuery(api.iceTtf.getHistorical, {});
     if (!data) {
-      return jsonResponse({ error: "No cached ICE TTF data is available yet." }, { status: 404, headers: { "Cache-Control": "no-store" } });
+      return jsonResponse(
+        { error: "No cached ICE TTF data is available yet." },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
     }
     return jsonResponse(
       {
