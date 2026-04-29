@@ -127,4 +127,42 @@ export default defineSchema({
     source: v.string(),
     row: v.any(),
   }).index("by_fetch", ["fetchId"]),
+
+  savedScenarios: defineTable({
+    name: v.string(),
+    description: v.optional(v.string()),
+    createdAtUtc: v.string(),
+    updatedAtUtc: v.string(),
+    marketDate: v.string(),
+    batteryTwinId: v.optional(v.id("batteryTwins")),
+    assumptions: v.any(),
+  })
+    .index("by_updatedAt", ["updatedAtUtc"])
+    .index("by_marketDate", ["marketDate"]),
+
+  batteryTwins: defineTable({
+    name: v.string(),
+    createdAtUtc: v.string(),
+    updatedAtUtc: v.string(),
+    capacityMwh: v.number(),
+    maxChargeMw: v.number(),
+    maxDischargeMw: v.number(),
+    roundTripEfficiency: v.number(),
+    minSocMwh: v.number(),
+    maxSocMwh: v.number(),
+    initialSocMwh: v.number(),
+    degradationCostEurPerMwh: v.number(),
+  }).index("by_updatedAt", ["updatedAtUtc"]),
+
+  runHistory: defineTable({
+    scenarioId: v.optional(v.id("savedScenarios")),
+    batteryTwinId: v.optional(v.id("batteryTwins")),
+    createdAtUtc: v.string(),
+    marketDate: v.string(),
+    status: v.string(),
+    summary: v.any(),
+    dispatch: v.any(),
+  })
+    .index("by_createdAt", ["createdAtUtc"])
+    .index("by_marketDate", ["marketDate"]),
 });
