@@ -480,6 +480,7 @@ def write_manifests(
     archives: list[Archive],
     assets: list[Asset],
     docs: list[dict[str, str | int]],
+    manifest_stem: str,
 ) -> None:
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -495,9 +496,9 @@ def write_manifests(
         "documentation": docs,
     }
 
-    (OUTPUT_ROOT / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (OUTPUT_ROOT / f"{manifest_stem}.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
-    with (OUTPUT_ROOT / "manifest.csv").open("w", newline="", encoding="utf-8") as handle:
+    with (OUTPUT_ROOT / f"{manifest_stem}.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
             fieldnames=[
@@ -545,6 +546,11 @@ def parse_args() -> argparse.Namespace:
         "--list-archives",
         action="store_true",
         help="List matching archive ZIPs without downloading them.",
+    )
+    parser.add_argument(
+        "--manifest-stem",
+        default="manifest",
+        help="Manifest filename stem under data/dam. Defaults to manifest.",
     )
     return parser.parse_args()
 
@@ -601,7 +607,7 @@ def main() -> None:
             assets.extend(archive_assets)
 
     assets = sorted({asset.output_path: asset for asset in assets}.values(), key=lambda asset: asset.output_path)
-    write_manifests(sources, archives, assets, docs)
+    write_manifests(sources, archives, assets, docs, args.manifest_stem)
     print(
         f"Downloaded {len(assets)} data files and {len(docs)} documentation files into {OUTPUT_ROOT}",
         flush=True,
