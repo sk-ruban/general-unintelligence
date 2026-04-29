@@ -401,26 +401,38 @@ def archive_member_is_relevant(archive: Archive, member_name: str) -> bool:
     return re.match(rf"\d{{8}}_EL-DAM_{re.escape(archive.code)}_EN_v\d+\.xlsx$", basename) is not None
 
 
+def extract_zip_members(archive: Archive, archive_file: zipfile.ZipFile) -> list[tuple[str, bytes]]:
+    extracted: list[tuple[str, bytes]] = []
+    for member in archive_file.infolist():
+        if member.is_dir():
+            continue
+        filename = Path(member.filename).name
+        data = archive_file.read(member)
+        if filename.endswith(".zip"):
+            if "EL-DAM" not in filename:
+                continue
+            with zipfile.ZipFile(io.BytesIO(data)) as nested_archive:
+                extracted.extend(extract_zip_members(archive, nested_archive))
+            continue
+        if not archive_member_is_relevant(archive, filename):
+            continue
+        extracted.append((filename, data))
+    return extracted
+
+
 def extract_archive_assets(archive: Archive) -> list[Asset]:
     archive_data = request_bytes(archive.url)
     validate_payload(archive.filename, archive_data)
-
     assets: list[Asset] = []
     with zipfile.ZipFile(io.BytesIO(archive_data)) as archive_file:
-        members = [
-            member
-            for member in archive_file.infolist()
-            if not member.is_dir() and archive_member_is_relevant(archive, member.filename)
-        ]
-        for member in members:
-            filename = Path(member.filename).name
+        for filename, member_data in extract_zip_members(archive, archive_file):
             output_dir = OUTPUT_ROOT / archive.folder
             output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / filename
             if output_path.exists():
                 data = output_path.read_bytes()
             else:
-                data = archive_file.read(member)
+                data = member_data
                 output_path.write_bytes(data)
             validate_payload(filename, data)
             assets.append(

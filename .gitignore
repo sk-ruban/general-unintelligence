@@ -24,7 +24,7 @@ test-results/
 data/dam/**/*.xlsx
 data/dam/**/*.pdf
 data/dam/**/*.zip
-data/dam/archive_manifest.*
+data/dam/archive_manifest*.*
 data/raw/*
 !data/raw/.gitkeep
 !data/raw/README.md

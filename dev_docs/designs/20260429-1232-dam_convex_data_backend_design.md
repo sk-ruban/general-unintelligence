@@ -54,6 +54,8 @@ Initial DAM streams to support:
 
 Use normalized tables where the dashboard needs fast filtering. Keep original parsed rows in `row: v.any()` so the first implementation preserves all ENEX fields without over-designing every column.
 
+Do not seed every raw row from every DAM source into Convex. The local `data/dam/` folder is the raw historical archive. Convex should contain the subset and derived views that the dashboard needs for fast interaction.
+
 Recommended tables:
 
 ```ts
@@ -265,6 +267,40 @@ The dashboard should not have to assemble every chart from raw rows. Provide a d
 }
 ```
 
+## Convex Seeding Policy
+
+The archive pull can maintain full raw history locally, but Convex should be cost-aware:
+
+| Dataset | Convex policy | Reason |
+| --- | --- | --- |
+| `results/` | Seed interval-level history across the useful archive range. | Final DAM prices and traded volumes are compact enough and are the core battery arbitrage signal. |
+| `prelim_results/` | Seed interval-level coupling prices, net positions, and flows across the useful archive range. | Coupling context is compact and important for market-regime explanations. |
+| `blkordrs/` | Seed aggregated date/MTU/side/classification rows, not every raw workbook artifact. | Useful for block-order pressure without excessive detail. |
+| `results_summary/` | Seed dashboard-ready summary rows or daily aggregates. | Good for executive views and validation against full results. |
+| `ndps/` and `posno_ms/` | Seed daily/MTU summaries when used by a dashboard card or feature. | Useful context, but lower priority than prices, curves, and coupling. |
+| `pre_market_summary/` | Seed selected pre-market indicators only. | Keep as feature input, not broad raw row storage. |
+| `mwo/` | Store catalog metadata only unless PDF extraction is explicitly needed. | PDFs are large and mostly human-readable outlook artifacts. |
+| `aggr_curves/` | Seed only the last 7 days of raw curve points for frontend drill-down. For older history, seed derived date/MTU metrics only. | Full raw curves are too large: a single workbook can be roughly tens of thousands of rows, which becomes expensive across years. |
+
+Recommended aggregate-curve derived metrics:
+
+- buy/sell point counts by date and MTU
+- min/max/median price by side
+- min/max quantity by side
+- approximate slope around the clearing price where joinable to `results/`
+- liquidity depth near MCP bands, such as +/- 10 EUR/MWh and +/- 25 EUR/MWh
+- curve fragility score
+- curve gap or steepness flags
+
+Recommended raw curve retention in Convex:
+
+```text
+AggrCurves raw points: last 7 market days only
+AggrCurves derived metrics: full local archive range
+```
+
+The frontend can use the raw 7-day slice for detailed curve charts and use the full-history derived metrics for trend charts, volatility regimes, and battery signal explanations.
+
 ## Battery Signals Endpoint
 
 Add one opinionated endpoint for the product narrative:
@@ -365,4 +401,3 @@ This completes the range-first DAM data layer and creates the recurring sync pat
 - Should timestamps be stored in Europe/Athens local offset, UTC, or both?
 - What maximum default date range should dashboard endpoints allow before requiring pagination or aggregation?
 - Should parsed cleaned rows also be written to `data/processed/dam/` as JSONL for reproducible review before seeding?
-
