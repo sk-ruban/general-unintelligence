@@ -19,7 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PanelGroup, PanelResizeHandle, Panel as ResizePanel } from "react-resizable-panels";
 import { CurveChart } from "@/components/curve-chart";
 import { DispatchTable } from "@/components/dispatch-table";
-import { PriceChart } from "@/components/price-chart";
+import { PriceChart, priceChartResolution, priceChartSeries } from "@/components/price-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
@@ -30,6 +30,7 @@ import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from 
 import { getMarketDataClient } from "@/lib/market-data/client";
 import type { PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
 import { buildPortfolioState } from "@/lib/portfolio";
+import { dayRangeForPriceWindow, PRICE_RANGES, type PriceRange, priceRangeLabel } from "@/lib/price-range";
 import type {
   AggregatedCurvePoint,
   BatteryTwinConfig,
@@ -71,6 +72,8 @@ export function CockpitClient() {
   const [selectedDay, setSelectedDay] = useState("");
   const [selectedMtu, setSelectedMtu] = useState(1);
   const [prices, setPrices] = useState<DamPricePoint[]>([]);
+  const [chartPrices, setChartPrices] = useState<DamPricePoint[]>([]);
+  const [priceRange, setPriceRange] = useState<PriceRange>("1M");
   const [curves, setCurves] = useState<AggregatedCurvePoint[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
   const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
@@ -127,6 +130,27 @@ export function CockpitClient() {
       cancelled = true;
     };
   }, [selectedDay]);
+
+  useEffect(() => {
+    const latestDay = days.at(-1);
+    const firstDay = days[0];
+    if (!latestDay || !firstDay) return;
+    const rangeLatestDay = latestDay;
+    const rangeFirstDay = firstDay;
+    let cancelled = false;
+    async function loadChartRange() {
+      const client = await getMarketDataClient();
+      const range = dayRangeForPriceWindow(priceRange, rangeLatestDay, rangeFirstDay);
+      const priceSeries = await client.getDamPriceSeries(range);
+      if (!cancelled) {
+        setChartPrices(priceSeries);
+      }
+    }
+    loadChartRange().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [days, priceRange]);
 
   useEffect(() => {
     if (!selectedDay) return;
@@ -200,19 +224,16 @@ export function CockpitClient() {
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
-          <TopBar
-            health={health}
-            selectedDay={selectedDay}
-            days={days}
-            onDayChange={setSelectedDay}
-            loading={loading}
-          />
+          <TopBar health={health} selectedDay={selectedDay} loading={loading} />
           <PanelGroup direction="horizontal" className="min-h-0 flex-1">
             <ResizePanel defaultSize={72} minSize={48}>
               <div className="dense-scrollbar h-full overflow-auto p-3">
                 {view === "control" ? (
                   <ControlRoom
                     prices={prices}
+                    chartPrices={chartPrices}
+                    priceRange={priceRange}
+                    onPriceRangeChange={setPriceRange}
                     curves={curves}
                     curveStats={curveStats}
                     selectedMtu={selectedMtu}
@@ -274,14 +295,10 @@ export function CockpitClient() {
 function TopBar({
   health,
   selectedDay,
-  days,
-  onDayChange,
   loading,
 }: {
   health: DataHealth | null;
   selectedDay: string;
-  days: string[];
-  onDayChange: (value: string) => void;
   loading: boolean;
 }) {
   return (
@@ -289,21 +306,14 @@ function TopBar({
       <div className="min-w-0">
         <div className="truncate font-semibold text-sm uppercase">Battery Intelligence OS</div>
         <div className="truncate text-[11px] text-zinc-500">
-          Greek DAM cockpit · Europe/Athens · {health?.mode ?? "loading"}
+          Greek DAM cockpit · Europe/Athens · {marketModeLabel(health?.mode)}
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <select
-          className="h-8 rounded border border-white/10 bg-zinc-950 px-2 font-mono text-[12px] text-zinc-100"
-          value={selectedDay}
-          onChange={(event) => onDayChange(event.target.value)}
-        >
-          {days.map((day) => (
-            <option key={day} value={day}>
-              {day}
-            </option>
-          ))}
-        </select>
+        <div className="hidden items-center gap-2 border border-white/10 px-2 py-1 text-[11px] text-zinc-400 sm:flex">
+          <span className="text-zinc-500 uppercase">Current market day</span>
+          <span className="mono text-zinc-100">{selectedDay || "loading"}</span>
+        </div>
         <div className="hidden items-center gap-2 border border-white/10 px-2 py-1 text-[11px] text-zinc-400 md:flex">
           <RadioTower className="h-3.5 w-3.5 text-cyan-300" />
           {loading ? "Hydrating" : `${health?.priceRows ?? 0} DAM rows`}
@@ -315,6 +325,9 @@ function TopBar({
 
 function ControlRoom({
   prices,
+  chartPrices,
+  priceRange,
+  onPriceRangeChange,
   curves,
   curveStats,
   selectedMtu,
@@ -328,6 +341,9 @@ function ControlRoom({
   loading,
 }: {
   prices: DamPricePoint[];
+  chartPrices: DamPricePoint[];
+  priceRange: PriceRange;
+  onPriceRangeChange: (range: PriceRange) => void;
   curves: AggregatedCurvePoint[];
   curveStats: CurveStats;
   selectedMtu: number;
@@ -347,7 +363,7 @@ function ControlRoom({
         <Metric
           label="Low / high"
           value={`${formatEurPerMwh(lowPrice)} · ${formatEurPerMwh(highPrice)}`}
-          detail="Selected day"
+          detail="Current market day"
         />
         <Metric label="Dispatch value" value={formatEuro(summary.valueEur)} detail="Deterministic twin v0" />
         <Metric
@@ -362,9 +378,10 @@ function ControlRoom({
         <Panel>
           <PanelHeader
             title="DAM MCP Price Series"
-            kicker={loading ? "Loading static market layer" : "15-minute MTU"}
+            kicker={loading ? "Loading market layer" : priceSeriesKicker(chartPrices, priceRange)}
+            right={<PriceRangeControl value={priceRange} onChange={onPriceRangeChange} />}
           />
-          <PriceChart data={prices} />
+          <PriceChart data={chartPrices.length > 0 ? chartPrices : prices} />
         </Panel>
         <Panel>
           <PanelHeader
@@ -389,6 +406,43 @@ function ControlRoom({
       </div>
     </div>
   );
+}
+
+function PriceRangeControl({
+  value,
+  onChange,
+}: {
+  value: PriceRange;
+  onChange: (range: PriceRange) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {PRICE_RANGES.map((range) => (
+        <button
+          key={range}
+          className={`h-6 border px-2 font-mono text-[10px] transition ${
+            value === range
+              ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-100"
+              : "border-white/10 bg-black/20 text-zinc-500 hover:text-zinc-200"
+          }`}
+          type="button"
+          onClick={() => onChange(range)}
+        >
+          {priceRangeLabel(range)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function priceSeriesKicker(prices: DamPricePoint[], range: PriceRange) {
+  if (prices.length === 0) {
+    return `${priceRangeLabel(range)} · loading`;
+  }
+  const first = prices[0]?.interval.marketDate ?? "n/a";
+  const last = prices.at(-1)?.interval.marketDate ?? "n/a";
+  const resolution = priceChartResolution(prices) === "daily-average" ? "daily avg" : "15-min MTU";
+  return `${priceRangeLabel(range)} · ${first} → ${last} · ${priceChartSeries(prices).length} ${resolution}`;
 }
 
 function PortfolioSummaryStrip({ summary }: { summary: PortfolioSummary }) {
@@ -926,9 +980,13 @@ function DataHealthView({
   return (
     <div className="grid gap-3">
       <Panel>
-        <PanelHeader title="Static DAM Layer" kicker="Generated from local ENEX XLSX" />
+        <PanelHeader title="DAM Price Layer" kicker="Convex prices with static curve overlays" />
         <div className="grid gap-2 p-3 md:grid-cols-4">
-          <Metric label="Mode" value={health?.mode ?? "loading"} detail="DuckDB-WASM or JSON fallback" />
+          <Metric
+            label="Mode"
+            value={marketModeLabel(health?.mode)}
+            detail="Convex primary, static fallback"
+          />
           <Metric
             label="Price rows"
             value={String(health?.priceRows ?? 0)}
@@ -942,7 +1000,7 @@ function DataHealthView({
           <Metric
             label="Coverage"
             value={`${health?.firstMarketDate ?? "n/a"} → ${health?.lastMarketDate ?? "n/a"}`}
-            detail="Manifest range"
+            detail="Available market range"
           />
         </div>
       </Panel>
@@ -953,6 +1011,13 @@ function DataHealthView({
       </div>
     </div>
   );
+}
+
+function marketModeLabel(mode: DataHealth["mode"] | undefined) {
+  if (mode === "convex") return "Convex";
+  if (mode === "duckdb") return "DuckDB-WASM";
+  if (mode === "json-fallback") return "JSON fallback";
+  return "loading";
 }
 
 function RightRail({

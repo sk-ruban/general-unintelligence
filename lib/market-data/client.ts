@@ -1,6 +1,7 @@
 "use client";
 
 import * as Comlink from "comlink";
+import { createConvexMarketDataClient } from "./convex-client";
 import {
   getJsonDataHealth,
   getJsonMarketDays,
@@ -18,6 +19,17 @@ export function getMarketDataClient(): Promise<MarketDataApi> {
 }
 
 async function createClient(): Promise<MarketDataApi> {
+  const convexSiteUrl = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  if (convexSiteUrl) {
+    try {
+      const convexClient = createConvexMarketDataClient(convexSiteUrl);
+      await convexClient.initializeMarketDb();
+      return convexClient;
+    } catch (error) {
+      console.warn("Convex DAM client failed; using static market data.", error);
+    }
+  }
+
   if (typeof Worker === "undefined") {
     return jsonClient;
   }
