@@ -32,6 +32,46 @@ export type PortfolioSiteState = BatterySite & {
   socPercent: number;
 };
 
+export type GridNodeKind =
+  | "battery"
+  | "wind"
+  | "solar"
+  | "hydro"
+  | "gas"
+  | "lignite"
+  | "import"
+  | "load"
+  | "hub";
+
+export type GridNode = {
+  id: string;
+  name: string;
+  kind: GridNodeKind;
+  region: string;
+  latitude: number;
+  longitude: number;
+  mw: number;
+  detail: string;
+  siteId?: string;
+};
+
+export type GridFlowKind =
+  | "renewable"
+  | "thermal"
+  | "import"
+  | "battery-discharge"
+  | "battery-charge"
+  | "load";
+
+export type GridFlow = {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  kind: GridFlowKind;
+  mw: number;
+  label: string;
+};
+
 export type PortfolioSummary = {
   capacityMwh: number;
   chargingMw: number;
@@ -158,6 +198,299 @@ export const demoBatterySites: BatterySite[] = [
   },
 ];
 
+const demoGridSources: GridNode[] = [
+  {
+    id: "bg-import",
+    name: "Bulgaria Interconnector",
+    kind: "import",
+    region: "GR-BG",
+    latitude: 41.38,
+    longitude: 23.35,
+    mw: 420,
+    detail: "Bulgaria import corridor",
+  },
+  {
+    id: "mk-import",
+    name: "North Macedonia Tie",
+    kind: "import",
+    region: "GR-MK",
+    latitude: 40.82,
+    longitude: 21.38,
+    mw: 180,
+    detail: "Balancing support into Western Macedonia",
+  },
+  {
+    id: "al-import",
+    name: "Albania Interconnector",
+    kind: "import",
+    region: "AL-GR",
+    latitude: 40.72,
+    longitude: 20.78,
+    mw: 160,
+    detail: "Zemblak-Kardia 400 kV corridor",
+  },
+  {
+    id: "tr-import",
+    name: "Turkey Interconnector",
+    kind: "import",
+    region: "TR-GR",
+    latitude: 40.82,
+    longitude: 26.25,
+    mw: 210,
+    detail: "Eastern corridor import",
+  },
+  {
+    id: "it-import",
+    name: "Italy HVDC Link",
+    kind: "import",
+    region: "IT-GR",
+    latitude: 40.1588,
+    longitude: 18.1248,
+    mw: 300,
+    detail: "Galatina-Arachthos HVDC landing",
+  },
+  {
+    id: "agios-dimitrios-lignite",
+    name: "Agios Dimitrios Lignite",
+    kind: "lignite",
+    region: "Western Macedonia",
+    latitude: 40.3942,
+    longitude: 21.9249,
+    mw: 620,
+    detail: "Large Kozani thermal block",
+  },
+  {
+    id: "komotini-gas",
+    name: "Komotini CCGT",
+    kind: "gas",
+    region: "Eastern Macedonia & Thrace",
+    latitude: 41.0646,
+    longitude: 25.4899,
+    mw: 290,
+    detail: "Gas flexibility block",
+  },
+  {
+    id: "lavrio-gas",
+    name: "Lavrio Gas",
+    kind: "gas",
+    region: "Attica",
+    latitude: 37.7463,
+    longitude: 24.0666,
+    mw: 260,
+    detail: "Attica gas support near Lavrio",
+  },
+  {
+    id: "megalopolis-gas",
+    name: "Megalopolis Gas",
+    kind: "gas",
+    region: "Peloponnese",
+    latitude: 37.42,
+    longitude: 22.12,
+    mw: 230,
+    detail: "Peloponnese thermal flexibility",
+  },
+  {
+    id: "kozani-solar",
+    name: "Kozani Solar Park",
+    kind: "solar",
+    region: "Western Macedonia",
+    latitude: 40.35,
+    longitude: 21.78,
+    mw: 260,
+    detail: "Northern PV surplus",
+  },
+  {
+    id: "thessaly-solar",
+    name: "Thessaly Solar Cluster",
+    kind: "solar",
+    region: "Thessaly",
+    latitude: 39.45,
+    longitude: 22.15,
+    mw: 220,
+    detail: "Daytime PV surplus",
+  },
+  {
+    id: "arcadia-solar",
+    name: "Arcadia Solar",
+    kind: "solar",
+    region: "Peloponnese",
+    latitude: 37.62,
+    longitude: 22.28,
+    mw: 130,
+    detail: "Peloponnese PV surplus",
+  },
+  {
+    id: "kafireas-wind",
+    name: "Kafireas Wind",
+    kind: "wind",
+    region: "Evia",
+    latitude: 38.02,
+    longitude: 24.48,
+    mw: 168,
+    detail: "South Evia wind cluster",
+  },
+  {
+    id: "cyclades-wind",
+    name: "Cyclades Wind",
+    kind: "wind",
+    region: "Aegean",
+    latitude: 37.44,
+    longitude: 24.94,
+    mw: 190,
+    detail: "Island renewable supply",
+  },
+  {
+    id: "crete-wind",
+    name: "Crete Wind Ridge",
+    kind: "wind",
+    region: "Crete",
+    latitude: 35.26,
+    longitude: 24.62,
+    mw: 105,
+    detail: "Crete wind support",
+  },
+  {
+    id: "crete-solar",
+    name: "Crete Solar Belt",
+    kind: "solar",
+    region: "Crete",
+    latitude: 35.18,
+    longitude: 25.04,
+    mw: 150,
+    detail: "Local solar surplus",
+  },
+  {
+    id: "kremasta-hydro",
+    name: "Kremasta Hydro",
+    kind: "hydro",
+    region: "Aetolia-Acarnania",
+    latitude: 38.8867,
+    longitude: 21.4957,
+    mw: 437,
+    detail: "Acheloos hydro storage",
+  },
+  {
+    id: "polyphyto-hydro",
+    name: "Polyphyto Hydro",
+    kind: "hydro",
+    region: "Western Macedonia",
+    latitude: 40.3026,
+    longitude: 22.1004,
+    mw: 375,
+    detail: "Aliakmonas hydro storage",
+  },
+  {
+    id: "thisavros-hydro",
+    name: "Thisavros Hydro",
+    kind: "hydro",
+    region: "Drama / Nestos",
+    latitude: 41.17,
+    longitude: 24.38,
+    mw: 384,
+    detail: "Nestos pumped-storage hydro",
+  },
+  {
+    id: "plastiras-hydro",
+    name: "Plastiras Hydro",
+    kind: "hydro",
+    region: "Thessaly",
+    latitude: 39.31,
+    longitude: 21.75,
+    mw: 130,
+    detail: "Thessaly hydro storage",
+  },
+  {
+    id: "ladon-hydro",
+    name: "Ladon Hydro",
+    kind: "hydro",
+    region: "Arcadia",
+    latitude: 37.68,
+    longitude: 22.02,
+    mw: 70,
+    detail: "Peloponnese hydro support",
+  },
+  {
+    id: "athens-load",
+    name: "Athens Load Pocket",
+    kind: "load",
+    region: "Attica",
+    latitude: 37.98,
+    longitude: 23.72,
+    mw: 880,
+    detail: "Largest demand sink",
+  },
+  {
+    id: "north-hub",
+    name: "North Grid Hub",
+    kind: "hub",
+    region: "Macedonia",
+    latitude: 40.55,
+    longitude: 22.3,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "east-hub",
+    name: "Eastern Grid Hub",
+    kind: "hub",
+    region: "Thrace",
+    latitude: 40.82,
+    longitude: 25.18,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "west-hub",
+    name: "Western Hydro Hub",
+    kind: "hub",
+    region: "Western Greece",
+    latitude: 38.86,
+    longitude: 21.25,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "central-hub",
+    name: "Central Grid Hub",
+    kind: "hub",
+    region: "Central Greece",
+    latitude: 39.1,
+    longitude: 22.35,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "south-hub",
+    name: "South Grid Hub",
+    kind: "hub",
+    region: "Attica & Peloponnese",
+    latitude: 37.85,
+    longitude: 23.35,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "peloponnese-hub",
+    name: "Peloponnese Hub",
+    kind: "hub",
+    region: "Peloponnese",
+    latitude: 37.55,
+    longitude: 22.2,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+  {
+    id: "island-hub",
+    name: "Island Grid Hub",
+    kind: "hub",
+    region: "Aegean",
+    latitude: 36.7,
+    longitude: 25.0,
+    mw: 0,
+    detail: "Synthetic regional bus",
+  },
+];
+
 export function buildPortfolioState(prices: DamPricePoint[], sites = demoBatterySites) {
   const currentIndex = currentPriceIndex(prices);
   const states = sites.map((site) => {
@@ -180,8 +513,106 @@ export function buildPortfolioState(prices: DamPricePoint[], sites = demoBattery
 
   return {
     sites: states,
+    grid: buildGridState(states),
     summary: summarizePortfolio(states),
   };
+}
+
+function buildGridState(sites: PortfolioSiteState[]) {
+  const batteryNodes = sites.map<GridNode>((site) => ({
+    id: `battery-${site.id}`,
+    name: site.name,
+    kind: "battery",
+    region: site.region,
+    latitude: site.latitude,
+    longitude: site.longitude,
+    mw: site.current?.mw ?? 0,
+    detail: `${site.current?.action ?? "idle"} · ${Math.round(site.socPercent)}% SoC`,
+    siteId: site.id,
+  }));
+  const nodes = [...demoGridSources, ...batteryNodes];
+  return {
+    nodes,
+    flows: buildGridFlows(sites),
+  };
+}
+
+function buildGridFlows(sites: PortfolioSiteState[]): GridFlow[] {
+  const flows: GridFlow[] = [
+    flow("bg-import", "north-hub", "import", 420, "Bulgaria import into northern hub"),
+    flow("mk-import", "north-hub", "import", 180, "North Macedonia import support"),
+    flow("al-import", "west-hub", "import", 160, "Albania import into western hydro hub"),
+    flow("tr-import", "east-hub", "import", 210, "Turkey import into eastern corridor"),
+    flow("it-import", "west-hub", "import", 300, "Italy HVDC into western Greece"),
+    flow("agios-dimitrios-lignite", "north-hub", "thermal", 620, "Kozani thermal support"),
+    flow("komotini-gas", "east-hub", "thermal", 290, "Komotini gas flexibility"),
+    flow("lavrio-gas", "south-hub", "thermal", 260, "Lavrio support to Attica"),
+    flow("megalopolis-gas", "peloponnese-hub", "thermal", 230, "Megalopolis support to Peloponnese"),
+    flow("kremasta-hydro", "west-hub", "renewable", 437, "Kremasta hydro storage into western grid"),
+    flow("polyphyto-hydro", "north-hub", "renewable", 375, "Polyphyto hydro into north hub"),
+    flow("thisavros-hydro", "east-hub", "renewable", 384, "Nestos pumped storage into eastern grid"),
+    flow("plastiras-hydro", "central-hub", "renewable", 130, "Plastiras hydro into central grid"),
+    flow("ladon-hydro", "peloponnese-hub", "renewable", 70, "Ladon hydro into Peloponnese"),
+    flow("kozani-solar", "north-hub", "renewable", 260, "Kozani PV surplus into north hub"),
+    flow("thessaly-solar", "central-hub", "renewable", 220, "PV surplus into central grid"),
+    flow("arcadia-solar", "peloponnese-hub", "renewable", 130, "Arcadia PV surplus into Peloponnese"),
+    flow("kafireas-wind", "south-hub", "renewable", 168, "South Evia wind into Attica corridor"),
+    flow("cyclades-wind", "island-hub", "renewable", 190, "Aegean wind into island hub"),
+    flow("crete-wind", "island-hub", "renewable", 105, "Crete wind into island hub"),
+    flow("crete-solar", "island-hub", "renewable", 150, "Crete solar into island hub"),
+    flow("north-hub", "central-hub", "load", 330, "North-to-central transfer"),
+    flow("east-hub", "central-hub", "load", 190, "Eastern corridor transfer"),
+    flow("west-hub", "central-hub", "load", 260, "Western hydro transfer"),
+    flow("central-hub", "south-hub", "load", 260, "Central-to-Attica corridor"),
+    flow("peloponnese-hub", "south-hub", "load", 160, "Peloponnese support into Attica"),
+    flow("island-hub", "south-hub", "load", 150, "Island renewable support into mainland"),
+    flow("south-hub", "athens-load", "load", 420, "Supplying Athens load pocket"),
+  ];
+
+  for (const site of sites) {
+    const nodeId = `battery-${site.id}`;
+    const current = site.current;
+    if (!current || current.action === "idle" || current.mw <= 0) {
+      continue;
+    }
+    if (current.action === "charge") {
+      flows.push(flow(feedNodeForSite(site), nodeId, "battery-charge", current.mw, `${site.name} charging`));
+      continue;
+    }
+    flows.push(
+      flow(nodeId, loadNodeForSite(site), "battery-discharge", current.mw, `${site.name} discharging`),
+    );
+  }
+
+  return flows;
+}
+
+function flow(fromNodeId: string, toNodeId: string, kind: GridFlowKind, mw: number, label: string): GridFlow {
+  return {
+    id: `${fromNodeId}-${toNodeId}-${kind}`,
+    fromNodeId,
+    toNodeId,
+    kind,
+    mw,
+    label,
+  };
+}
+
+function feedNodeForSite(site: PortfolioSiteState) {
+  if (site.id === "crete-iraklio") return "island-hub";
+  if (site.id === "patras-south") return "west-hub";
+  if (site.id === "kozani-north") return "north-hub";
+  if (site.id === "athens-west") return "south-hub";
+  if (site.id === "volos-port") return "central-hub";
+  return "central-hub";
+}
+
+function loadNodeForSite(site: PortfolioSiteState) {
+  if (site.id === "thessaloniki-flex") return "north-hub";
+  if (site.id === "athens-west") return "athens-load";
+  if (site.id === "crete-iraklio") return "island-hub";
+  if (site.id === "patras-south") return "peloponnese-hub";
+  return "central-hub";
 }
 
 function demoTelemetryPoint(site: BatterySite, basePoint: DispatchPoint | null): DispatchPoint | null {

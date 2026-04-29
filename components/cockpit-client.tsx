@@ -22,6 +22,7 @@ import { type ComponentType, type CSSProperties, type ReactNode, useEffect, useM
 import { PanelGroup, PanelResizeHandle, Panel as ResizePanel } from "react-resizable-panels";
 import { CurveChart } from "@/components/curve-chart";
 import { DispatchTable } from "@/components/dispatch-table";
+import { GridFlowMap } from "@/components/grid-flow-map";
 import { PriceChart, priceChartResolution, priceChartSeries } from "@/components/price-chart";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -271,6 +272,8 @@ export function CockpitClient() {
                 ) : null}
                 {view === "portfolio" ? (
                   <PortfolioView
+                    gridFlows={portfolio.grid.flows}
+                    gridNodes={portfolio.grid.nodes}
                     portfolioSummary={portfolio.summary}
                     selectedSite={selectedSite}
                     selectedSiteId={selectedSite?.id ?? selectedSiteId}
@@ -687,12 +690,16 @@ function PortfolioSummaryStrip({ summary }: { summary: PortfolioSummary }) {
 }
 
 function PortfolioView({
+  gridFlows,
+  gridNodes,
   sites,
   selectedSite,
   selectedSiteId,
   portfolioSummary,
   onSelectSite,
 }: {
+  gridFlows: ReturnType<typeof buildPortfolioState>["grid"]["flows"];
+  gridNodes: ReturnType<typeof buildPortfolioState>["grid"]["nodes"];
   sites: PortfolioSiteState[];
   selectedSite: PortfolioSiteState | null;
   selectedSiteId: string;
@@ -704,8 +711,17 @@ function PortfolioView({
       <PortfolioSummaryStrip summary={portfolioSummary} />
       <div className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
         <Panel>
-          <PanelHeader title="Greek Battery Portfolio" kicker="Demo BESS sites · current dispatch state" />
-          <GreeceBatteryMap selectedSiteId={selectedSiteId} sites={sites} onSelectSite={onSelectSite} />
+          <PanelHeader
+            title="Greek Grid Flow Manager"
+            kicker="Batteries · supply nodes · interconnector flows"
+          />
+          <GridFlowMap
+            flows={gridFlows}
+            nodes={gridNodes}
+            selectedSiteId={selectedSiteId}
+            sites={sites}
+            onSelectSite={onSelectSite}
+          />
         </Panel>
         <SiteDetailPanel site={selectedSite} />
       </div>
@@ -746,101 +762,6 @@ function PortfolioView({
           </table>
         </div>
       </Panel>
-    </div>
-  );
-}
-
-function GreeceBatteryMap({
-  sites,
-  selectedSiteId,
-  onSelectSite,
-}: {
-  sites: PortfolioSiteState[];
-  selectedSiteId: string;
-  onSelectSite: (siteId: string) => void;
-}) {
-  return (
-    <div className="relative min-h-[520px] overflow-hidden bg-[var(--bg-base)]">
-      <svg
-        aria-label="Greece portfolio map"
-        className="absolute inset-0 h-full w-full"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        viewBox="0 0 420 520"
-      >
-        <rect width="420" height="520" fill="#050506" />
-        <path
-          d="M157 67 195 48 243 57 278 87 268 125 290 156 271 197 286 226 258 267 282 302 268 354 239 363 219 336 191 354 168 328 181 291 153 258 167 223 139 190 154 151 134 116Z"
-          fill="#12151b"
-          stroke="#67E8F9"
-          strokeOpacity="0.34"
-          strokeWidth="2"
-        />
-        <path
-          d="M205 364 240 386 235 425 205 455 167 444 145 411 166 377Z"
-          fill="#12151b"
-          stroke="#67E8F9"
-          strokeOpacity="0.28"
-          strokeWidth="2"
-        />
-        <path
-          d="M292 245 315 262 303 294 278 284Z M317 330 348 346 337 382 303 372Z M118 292 139 305 126 337 102 320Z M315 151 337 167 325 194 300 181Z"
-          fill="#101216"
-          stroke="#71717a"
-          strokeOpacity="0.32"
-          strokeWidth="1.5"
-        />
-        <path
-          d="M83 82H337M64 162H356M58 242H362M73 322H347M103 402H317"
-          stroke="#ffffff"
-          strokeOpacity="0.045"
-        />
-        <path d="M120 39V474M190 26V489M260 39V474M330 78V438" stroke="#ffffff" strokeOpacity="0.045" />
-      </svg>
-      <div className="absolute inset-0">
-        {sites.map((site) => {
-          const position = projectSite(site);
-          const selected = selectedSiteId === site.id;
-          return (
-            <button
-              key={site.id}
-              className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center outline-none"
-              style={{ left: `${position.x}%`, top: `${position.y}%` }}
-              title={site.name}
-              type="button"
-              onClick={() => onSelectSite(site.id)}
-            >
-              <span
-                className={`flex h-9 w-9 items-center justify-center border bg-black/80 shadow-[0_0_24px_rgba(0,0,0,0.7)] transition ${
-                  selected ? "scale-110 border-white" : markerClass(site.current?.action)
-                }`}
-              >
-                <span
-                  className={`h-3.5 w-3.5 ${site.current?.action === "idle" ? "bg-zinc-500" : "bg-current"}`}
-                  style={{ opacity: 0.45 + site.socPercent / 180 }}
-                />
-              </span>
-              <span className="pointer-events-none absolute top-10 hidden min-w-32 border border-white/10 bg-zinc-950/95 px-2 py-1 text-left text-[10px] shadow-xl md:block">
-                <span className="block truncate text-zinc-200">{site.name}</span>
-                <span className={`block uppercase ${actionTextClass(site.current?.action)}`}>
-                  {site.current?.action ?? "idle"} · {formatPercent(site.socPercent / 100)}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="absolute right-3 bottom-3 grid gap-1 border border-white/10 bg-black/70 p-2 text-[10px] text-zinc-500 uppercase">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 bg-[var(--green)]" /> Charging
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 bg-[var(--amber)]" /> Discharging
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 bg-zinc-500" /> Idle
-        </div>
-      </div>
     </div>
   );
 }
@@ -907,23 +828,6 @@ function SiteDetailPanel({ site }: { site: PortfolioSiteState | null }) {
       </div>
     </Panel>
   );
-}
-
-function projectSite(site: Pick<PortfolioSiteState, "latitude" | "longitude">) {
-  const minLon = 19.2;
-  const maxLon = 29.8;
-  const minLat = 34.3;
-  const maxLat = 41.4;
-  return {
-    x: 12 + ((site.longitude - minLon) / (maxLon - minLon)) * 76,
-    y: 8 + ((maxLat - site.latitude) / (maxLat - minLat)) * 84,
-  };
-}
-
-function markerClass(action: DispatchPoint["action"] | undefined) {
-  if (action === "charge") return "border-[var(--green)] text-[var(--green)]";
-  if (action === "discharge") return "border-[var(--amber)] text-[var(--amber)]";
-  return "border-zinc-600 text-zinc-500";
 }
 
 function actionTextClass(action: DispatchPoint["action"] | undefined) {
