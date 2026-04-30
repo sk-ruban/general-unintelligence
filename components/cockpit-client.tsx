@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { PanelGroup, PanelResizeHandle, Panel as ResizePanel } from "react-resizable-panels";
+import { BatteryCopilot } from "@/components/cockpit/battery-copilot";
 import { AppSidebar, CommandPalette, TopBar } from "@/components/cockpit/cockpit-shell";
 import {
   BatteryTwin,
@@ -231,6 +232,17 @@ export function CockpitClient() {
           </PanelGroup>
         </section>
         <CommandPalette open={paletteOpen} setOpen={setPaletteOpen} setView={setView} />
+        <BatteryCopilot
+          backtest={backtestArtifact}
+          batterySignals={batterySignals}
+          dispatch={dispatch}
+          health={health}
+          model={modelLabArtifact}
+          optimizer={optimizerArtifact}
+          selectedDay={selectedDay}
+          signals={signals}
+          twin={twin}
+        />
       </SidebarProvider>
     </main>
   );
