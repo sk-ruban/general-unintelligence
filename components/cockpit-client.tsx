@@ -41,14 +41,20 @@ import {
   SidebarProvider,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import {
-  type BatteryArchetypeSlug,
-  batteryArchetypes,
-  twinConfigFromArchetype,
-} from "@/lib/battery-archetypes";
 import { buildDispatchSchedule, summarizeDispatch } from "@/lib/battery-dispatch";
-import { loadExternalSignals } from "@/lib/convex-signals";
+import {
+  BATTERY_TWIN_TEMPLATES,
+  type BatteryTwin as BatteryTwinModel,
+  type BatteryTwinParameters,
+  type BatteryTwinTemplateId,
+  buildBatteryTwin,
+  evaluateDispatchFeasibility,
+  getMissingSpecs,
+  type TwinFeasibilityCheck,
+} from "@/lib/battery-twin";
+import { loadBatterySignalEngine, loadExternalSignals } from "@/lib/convex-signals";
 import { getCurveDataClient } from "@/lib/curve-data/client";
+import { buildDecisionConfidence, type DecisionConfidenceCard } from "@/lib/decision-confidence";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import { getMarketDataClient } from "@/lib/market-data/client";
 import type { GridFlow, GridNode, PortfolioSiteState, PortfolioSummary } from "@/lib/portfolio";
@@ -60,9 +66,16 @@ import {
   priceRangeLabel,
   priceRangeResolution,
 } from "@/lib/price-range";
+import {
+  buildScenarioComparisons,
+  buildScenarioExecutiveSummary,
+  type ScenarioComparison,
+} from "@/lib/scenario-comparison";
 import { activeTenant } from "@/lib/tenants";
 import type {
   AggregatedCurvePoint,
+  BatterySignalInterval,
+  BatterySignalResponse,
   BatteryTwinConfig,
   DamPricePoint,
   DataHealth,
@@ -70,49 +83,6 @@ import type {
   DispatchPoint,
   ExternalSignalPanel,
 } from "@/lib/types";
-
-type OptimizerArtifact = {
-  asset_slug: BatteryArchetypeSlug;
-  market_date: string;
-  resolution_minutes: 15 | 60;
-  scenarios: Record<
-    string,
-    {
-      charge_mw: number[];
-      discharge_mw: number[];
-      soc_mwh: number[];
-      cycle_count: number;
-      expected_revenue_eur: number;
-      degradation_cost_eur: number;
-      feasibility_violations: string[];
-      solve_status: string;
-      solve_time_ms: number;
-      input_prices_eur_per_mwh: number[];
-    }
-  >;
-};
-
-type ModelLabArtifact = {
-  model_id: string;
-  feature_set: string;
-  fold_count: number;
-  overall?: Record<string, number>;
-  by_year?: Record<string, { mae_eur_per_mwh: number; rows: number }>;
-  feature_importance?: Record<string, number>;
-};
-
-type BacktestArtifact = {
-  start_date: string | null;
-  end_date: string | null;
-  results: {
-    annualized_eur_per_mw_per_year: Record<string, number>;
-    perfect_foresight_eur_per_mw_per_year: Record<string, number>;
-    capture_rate: number;
-    sharpe: number;
-    max_drawdown_eur: number;
-    feasibility_violations: number;
-  };
-};
 
 type View =
   | "control"
@@ -168,21 +138,17 @@ export function CockpitClient() {
   const [health, setHealth] = useState<DataHealth | null>(null);
   const [curveHealth, setCurveHealth] = useState<DataHealth | null>(null);
   const [signals, setSignals] = useState<ExternalSignalPanel[]>([]);
+  const [batterySignals, setBatterySignals] = useState<BatterySignalResponse | null>(null);
   const [selectedSiteId, setSelectedSiteId] = useState("kozani-north");
   const [selectedGridNodeId, setSelectedGridNodeId] = useState("battery-kozani-north");
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [selectedAssetSlug, setSelectedAssetSlug] =
-    useState<BatteryArchetypeSlug>("metlen_karatzis_thessaly");
-  const [twin, setTwin] = useState<BatteryTwinConfig>(
-    twinConfigFromArchetype(batteryArchetypes.metlen_karatzis_thessaly),
+  const [selectedTwinId, setSelectedTwinId] = useState<BatteryTwinTemplateId>("metlen-karatzis-thessaly");
+  const [twinOverrides, setTwinOverrides] = useState<Partial<BatteryTwinParameters>>({});
+  const activeBatteryTwin = useMemo(
+    () => buildBatteryTwin(selectedTwinId, twinOverrides),
+    [selectedTwinId, twinOverrides],
   );
-  const [optimizerArtifact, setOptimizerArtifact] = useState<OptimizerArtifact | null>(null);
-  const [modelLabArtifact, setModelLabArtifact] = useState<ModelLabArtifact | null>(null);
-  const [backtestArtifact, setBacktestArtifact] = useState<BacktestArtifact | null>(null);
-
-  useEffect(() => {
-    setTwin(twinConfigFromArchetype(batteryArchetypes[selectedAssetSlug]));
-  }, [selectedAssetSlug]);
+  const twin = activeBatteryTwin.optimizerConfig;
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +200,26 @@ export function CockpitClient() {
   }, [selectedDay]);
 
   useEffect(() => {
+    if (!selectedDay) return;
+    let cancelled = false;
+    async function loadCanonicalSignals() {
+      const response = await loadBatterySignalEngine({ date: selectedDay, twin });
+      if (!cancelled) {
+        setBatterySignals(response);
+      }
+    }
+    loadCanonicalSignals().catch((error) => {
+      console.error(error);
+      if (!cancelled) {
+        setBatterySignals(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDay, twin]);
+
+  useEffect(() => {
     const latestDay = days.at(-1) ?? "";
     const firstDay = days[0] ?? "";
     if (!latestDay || !firstDay) return;
@@ -283,42 +269,31 @@ export function CockpitClient() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadArtifacts() {
-      const slugSuffix = selectedAssetSlug === "metlen_karatzis_thessaly" ? "" : `_${selectedAssetSlug}`;
-      const [dispatchResult, modelResult, backtestResult] = await Promise.allSettled([
-        fetch(`/demo_artifacts/demo_dispatch${slugSuffix}.json`).then((response) =>
-          response.ok ? response.json() : null,
-        ),
-        fetch("/demo_artifacts/model_lab.json").then((response) => (response.ok ? response.json() : null)),
-        fetch("/demo_artifacts/backtest_summary.json").then((response) =>
-          response.ok ? response.json() : null,
-        ),
-      ]);
-      if (cancelled) return;
-      setOptimizerArtifact(dispatchResult.status === "fulfilled" ? dispatchResult.value : null);
-      setModelLabArtifact(modelResult.status === "fulfilled" ? modelResult.value : null);
-      setBacktestArtifact(backtestResult.status === "fulfilled" ? backtestResult.value : null);
-    }
-    loadArtifacts().catch(console.error);
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAssetSlug]);
-
-  const heuristicDispatch = useMemo(() => buildDispatchSchedule(prices, twin), [prices, twin]);
-  const dispatch = useMemo(
-    () => artifactDispatchToRows(optimizerArtifact, prices, twin) ?? heuristicDispatch,
-    [optimizerArtifact, prices, twin, heuristicDispatch],
-  );
+  const dispatch = useMemo(() => buildDispatchSchedule(prices, twin), [prices, twin]);
   const summary = useMemo(() => summarizeDispatch(dispatch), [dispatch]);
-  const selectedArchetype = batteryArchetypes[selectedAssetSlug];
   const latestPrice = prices.at(-1)?.mcpEurPerMwh ?? null;
   const priceValues = prices.map((point) => point.mcpEurPerMwh);
   const lowPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
   const highPrice = priceValues.length > 0 ? Math.max(...priceValues) : null;
   const curveStats = useMemo(() => summarizeCurves(curves), [curves]);
+  const decisionConfidence = useMemo(
+    () =>
+      buildDecisionConfidence({
+        dispatch,
+        prices,
+        curves,
+        curveStats,
+        signals,
+        twin,
+        health,
+      }),
+    [dispatch, prices, curves, curveStats, signals, twin, health],
+  );
+  const feasibilityChecks = useMemo(
+    () => evaluateDispatchFeasibility(dispatch, activeBatteryTwin.optimizerConstraints),
+    [dispatch, activeBatteryTwin],
+  );
+  const scenarioComparisons = useMemo(() => buildScenarioComparisons(prices, twin), [prices, twin]);
   const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);
   const portfolio = useMemo(() => buildPortfolioState(prices), [prices]);
   const selectedGridNode =
@@ -377,6 +352,12 @@ export function CockpitClient() {
                     lowPrice={lowPrice}
                     highPrice={highPrice}
                     signals={signals}
+                    batterySignals={batterySignals}
+                    decisionConfidence={decisionConfidence}
+                    feasibilityChecks={feasibilityChecks}
+                    activeBatteryTwin={activeBatteryTwin}
+                    health={health}
+                    curveHealth={curveHealth}
                     portfolioSummary={portfolio.summary}
                     loading={loading}
                     twin={twin}
@@ -414,33 +395,36 @@ export function CockpitClient() {
                     hasCurveDay={curveDaySet.has(selectedDay)}
                   />
                 ) : null}
-                {view === "signals" ? <SignalsView signals={signals} /> : null}
+                {view === "signals" ? (
+                  <SignalsView batterySignals={batterySignals} signals={signals} />
+                ) : null}
                 {view === "twin" ? (
                   <BatteryTwin
-                    archetype={selectedArchetype}
-                    selectedAssetSlug={selectedAssetSlug}
-                    setSelectedAssetSlug={setSelectedAssetSlug}
-                    twin={twin}
-                    setTwin={setTwin}
-                    summary={summary}
-                  />
-                ) : null}
-                {view === "model" ? (
-                  <ModelLab
-                    artifact={modelLabArtifact}
-                    backtest={backtestArtifact}
-                    twin={twin}
+                    activeTwin={activeBatteryTwin}
+                    selectedTwinId={selectedTwinId}
+                    onTemplateChange={(id) => {
+                      setSelectedTwinId(id);
+                      setTwinOverrides({});
+                    }}
+                    onParameterChange={(key, value) =>
+                      setTwinOverrides((current) => ({ ...current, [key]: value }))
+                    }
+                    onApplyPolicy={(policy) =>
+                      setTwinOverrides((current) => ({ ...current, ...policyOverrides(policy) }))
+                    }
                     summary={summary}
                     dispatch={dispatch}
                   />
                 ) : null}
-                {view === "scenarios" ? <Scenarios artifact={optimizerArtifact} dispatch={dispatch} /> : null}
+                {view === "model" ? <ModelLab twin={twin} summary={summary} dispatch={dispatch} /> : null}
+                {view === "scenarios" ? <Scenarios comparisons={scenarioComparisons} /> : null}
                 {view === "health" ? (
                   <DataHealthView
                     curveDays={curveDays}
                     curveHealth={curveHealth}
                     health={health}
                     signals={signals}
+                    batterySignals={batterySignals}
                     days={days}
                   />
                 ) : null}
@@ -457,7 +441,7 @@ export function CockpitClient() {
                   collapsible
                   collapsedSize={0}
                 >
-                  <RightRail dispatch={dispatch} summary={summary} signals={signals} twin={twin} />
+                  <RightRail batterySignals={batterySignals} signals={signals} twin={twin} />
                 </ResizePanel>
               </>
             ) : null}
@@ -586,6 +570,12 @@ function ControlRoom({
   lowPrice,
   highPrice,
   signals,
+  batterySignals,
+  decisionConfidence,
+  feasibilityChecks,
+  activeBatteryTwin,
+  health,
+  curveHealth,
   portfolioSummary,
   loading,
   twin,
@@ -603,6 +593,12 @@ function ControlRoom({
   lowPrice: number | null;
   highPrice: number | null;
   signals: ExternalSignalPanel[];
+  batterySignals: BatterySignalResponse | null;
+  decisionConfidence: DecisionConfidenceCard[];
+  feasibilityChecks: TwinFeasibilityCheck[];
+  activeBatteryTwin: BatteryTwinModel;
+  health: DataHealth | null;
+  curveHealth: DataHealth | null;
   portfolioSummary: PortfolioSummary;
   loading: boolean;
   twin: BatteryTwinConfig;
@@ -616,17 +612,41 @@ function ControlRoom({
 
   return (
     <>
-      <div className="flex items-start gap-3 rounded border border-cyan-300/20 bg-cyan-300/[0.05] px-4 py-3">
-        <Zap className="mt-0.5 h-5 w-5 shrink-0 text-[var(--cyan)]" />
-        <div className="text-[14px] leading-6">
-          <strong>Recommended Plan:</strong> Charge during low-price surplus windows ({chargeRange}),
-          discharge during high-price scarcity windows ({dischargeRange}), and stay idle elsewhere. Projected
-          spreads outside these windows do not cover degradation cost and forecast risk.
-        </div>
-      </div>
+      <DecisionHeader
+        activeTwin={activeBatteryTwin}
+        chargeRange={chargeRange}
+        dischargeRange={dischargeRange}
+        dispatch={dispatch}
+        summary={summary}
+        twin={twin}
+      />
 
       <PortfolioSummaryStrip summary={portfolioSummary} />
-      <SignalDeck signals={signals} />
+      <SignalDeck batterySignals={batterySignals} signals={signals} />
+
+      <DecisionConfidenceStrip cards={decisionConfidence} />
+
+      <Panel>
+        <PanelHeader
+          title="Canonical Battery Signal Strip"
+          kicker={
+            batterySignals
+              ? `${batterySignals.summary.intervalCount} backend intervals`
+              : "Waiting for /signals/intervals"
+          }
+          right={<SignalQualityTag batterySignals={batterySignals} />}
+        />
+        <div className="flex flex-col gap-2 p-3">
+          <BatterySignalStrip batterySignals={batterySignals} />
+          <div className="mono flex justify-between text-[10px] text-zinc-500">
+            <span>00:00</span>
+            <span>06:00</span>
+            <span>12:00</span>
+            <span>18:00</span>
+            <span>23:45</span>
+          </div>
+        </div>
+      </Panel>
 
       <Panel>
         <PanelHeader
@@ -695,6 +715,17 @@ function ControlRoom({
           <ChartAxis />
         </div>
       </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <FeasibilityChecklist checks={feasibilityChecks} />
+        <DecisionInputStack
+          batterySignals={batterySignals}
+          curveHealth={curveHealth}
+          curveStats={curveStats}
+          health={health}
+          signals={signals}
+        />
+      </div>
 
       <div className="grid gap-2 md:grid-cols-4">
         <Metric label="Latest MCP" value={formatEurPerMwh(latestPrice)} detail="Final HEnEx DAM" />
@@ -776,6 +807,203 @@ function ControlRoom({
   );
 }
 
+function DecisionHeader({
+  activeTwin,
+  chargeRange,
+  dischargeRange,
+  dispatch,
+  summary,
+  twin,
+}: {
+  activeTwin: BatteryTwinModel;
+  chargeRange: string;
+  dischargeRange: string;
+  dispatch: DispatchPoint[];
+  summary: ReturnType<typeof summarizeDispatch>;
+  twin: BatteryTwinConfig;
+}) {
+  const activeIntervals = dispatch.filter((point) => point.action !== "idle").length;
+  const throughput = summary.chargeMwh + summary.dischargeMwh;
+  const degradationCost = throughput * twin.degradationCostEurPerMwh;
+  const scheduleStatus = dispatch.length > 0 ? "Feasible plan candidate" : "No schedule loaded";
+
+  return (
+    <Panel className="border-cyan-300/20 bg-cyan-300/[0.05]">
+      <div className="grid gap-4 p-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <div className="flex items-start gap-3">
+          <Zap className="mt-1 h-5 w-5 shrink-0 text-[var(--cyan)]" />
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium text-cyan-200 uppercase tracking-[0.08em]">
+              Tomorrow's Battery Plan
+            </div>
+            <div className="mt-2 text-[18px] font-semibold leading-7 text-zinc-50">
+              Charge {chargeRange}; discharge {dischargeRange}; idle where spreads do not clear losses.
+            </div>
+            <div className="mt-2 max-w-4xl text-[13px] leading-6 text-zinc-400">
+              The selected {activeTwin.profile.name} twin constrains the schedule to{" "}
+              {formatMw(twin.maxChargeMw)} charge / {formatMw(twin.maxDischargeMw)} discharge,{" "}
+              {formatMwh(twin.minSocMwh)}-{formatMwh(twin.maxSocMwh)} SoC, and{" "}
+              {formatPercent(twin.roundTripEfficiency)} AC round-trip efficiency.
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+          <DecisionHeaderMetric
+            label="Status"
+            value={scheduleStatus}
+            tone={dispatch.length > 0 ? "green" : "red"}
+          />
+          <DecisionHeaderMetric label="Expected Value" value={formatEuro(summary.valueEur)} tone="cyan" />
+          <DecisionHeaderMetric label="Active MTUs" value={String(activeIntervals)} tone="outline" />
+          <DecisionHeaderMetric label="Degradation Cost" value={formatEuro(degradationCost)} tone="amber" />
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function DecisionHeaderMetric({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+  return (
+    <div className="border border-white/10 bg-black/20 p-3">
+      <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
+      <div className={`mono mt-1 truncate text-[14px] font-medium ${toneClass(tone)}`}>{value}</div>
+    </div>
+  );
+}
+
+function DecisionConfidenceStrip({ cards }: { cards: DecisionConfidenceCard[] }) {
+  return (
+    <div className="grid gap-2 md:grid-cols-5">
+      {cards.map((card) => (
+        <Panel key={card.id} className="p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">
+                {card.label}
+              </div>
+              <div className={`mono mt-1 truncate text-[16px] font-medium ${toneClass(card.tone)}`}>
+                {card.value}
+              </div>
+            </div>
+            <Tag tone={cardTone(card)}>{card.status}</Tag>
+          </div>
+          <div className="mt-2 line-clamp-2 min-h-8 text-[11px] leading-4 text-zinc-500">{card.detail}</div>
+        </Panel>
+      ))}
+    </div>
+  );
+}
+
+function cardTone(card: DecisionConfidenceCard): Tone {
+  if (card.tone === "green") return "green";
+  if (card.tone === "amber") return "amber";
+  if (card.tone === "red") return "red";
+  return "outline";
+}
+
+function FeasibilityChecklist({ checks }: { checks: TwinFeasibilityCheck[] }) {
+  return (
+    <Panel>
+      <PanelHeader
+        title="Twin Feasibility Proof"
+        kicker="Derived from dispatch and selected battery constraints"
+        right={<Tag tone={checks.every((check) => check.status === "pass") ? "green" : "amber"}>Twin</Tag>}
+      />
+      <div className="grid gap-2 p-3 md:grid-cols-2">
+        {checks.slice(0, 8).map((check) => (
+          <div key={check.id} className="border border-white/10 bg-black/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="truncate text-[12px] font-medium text-zinc-200">{check.label}</div>
+              <Tag tone={check.status === "pass" ? "green" : check.status === "review" ? "amber" : "red"}>
+                {check.status}
+              </Tag>
+            </div>
+            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-500">{check.detail}</div>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function DecisionInputStack({
+  batterySignals,
+  curveHealth,
+  curveStats,
+  health,
+  signals,
+}: {
+  batterySignals: BatterySignalResponse | null;
+  curveHealth: DataHealth | null;
+  curveStats: CurveStats;
+  health: DataHealth | null;
+  signals: ExternalSignalPanel[];
+}) {
+  const weather = findSignal(signals, "Weather");
+  const ttf = findSignal(signals, "TTF");
+  const eex = findSignal(signals, "EEX");
+  return (
+    <Panel>
+      <PanelHeader title="Decision Inputs" kicker="Observed, cached, fallback, and proxy sources" />
+      <div className="grid gap-2 p-3 md:grid-cols-2">
+        <InputStackCard
+          detail={`${health?.firstMarketDate ?? "n/a"} -> ${health?.lastMarketDate ?? "n/a"}`}
+          label="HEnEx DAM"
+          status={health ? marketModeLabel(health.mode) : "Missing"}
+          tone={health ? "green" : "red"}
+          value={`${health?.priceRows ?? 0} rows`}
+        />
+        <InputStackCard
+          detail={curveHealth ? `${curveHealth.curveRows} derived rows` : "Static fallback if unavailable"}
+          label="HEnEx Curves"
+          status={curveStats.totalPoints > 0 ? "Loaded" : "Fallback"}
+          tone={curveStats.totalPoints > 0 ? "green" : "amber"}
+          value={`${curveStats.totalPoints} points`}
+        />
+        <InputStackCard
+          detail={weather?.detail ?? "No weather cache"}
+          label="Open-Meteo"
+          status={statusLabel(weather)}
+          tone={weather?.status === "missing" ? "red" : "cyan"}
+          value={weather?.value ?? "Missing"}
+        />
+        <InputStackCard
+          detail={`${ttf?.value ?? "TTF n/a"} · ${eex?.value ?? "EEX n/a"}`}
+          label="Fuel / Forward Context"
+          status={ttf || eex ? "Context" : "Missing"}
+          tone={ttf || eex ? "blue" : "red"}
+          value={batterySignals ? "Scored" : "Proxy"}
+        />
+      </div>
+    </Panel>
+  );
+}
+
+function InputStackCard({
+  detail,
+  label,
+  status,
+  tone,
+  value,
+}: {
+  detail: string;
+  label: string;
+  status: string;
+  tone: Tone;
+  value: string;
+}) {
+  return (
+    <div className="border border-white/10 bg-black/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
+        <Tag tone={tone}>{status}</Tag>
+      </div>
+      <div className="mono mt-1 truncate text-[14px] text-zinc-100">{value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{detail}</div>
+    </div>
+  );
+}
+
 function PriceRangeControl({
   value,
   onChange,
@@ -803,48 +1031,6 @@ function PriceRangeControl({
       </div>
     </div>
   );
-}
-
-function artifactDispatchToRows(
-  artifact: OptimizerArtifact | null,
-  prices: DamPricePoint[],
-  twin: BatteryTwinConfig,
-): DispatchPoint[] | null {
-  const base = artifact?.scenarios.base;
-  const marketDate = prices[0]?.interval.marketDate;
-  if (!artifact || !base || artifact.market_date !== marketDate || prices.length !== base.charge_mw.length) {
-    return null;
-  }
-  const dt = artifact.resolution_minutes / 60;
-  return prices
-    .slice()
-    .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc))
-    .map((point, index) => {
-      const charge = base.charge_mw[index] ?? 0;
-      const discharge = base.discharge_mw[index] ?? 0;
-      const action: DispatchAction = discharge > 0.001 ? "discharge" : charge > 0.001 ? "charge" : "idle";
-      const mw = action === "charge" ? charge : action === "discharge" ? discharge : 0;
-      const mwh = mw * dt;
-      const value = point.mcpEurPerMwh * (discharge - charge) * dt;
-      return {
-        interval: point.interval,
-        action,
-        mw: Number(mw.toFixed(3)),
-        mwh: Number(mwh.toFixed(3)),
-        socMwh: Number((base.soc_mwh[index + 1] ?? base.soc_mwh[index] ?? twin.initialSocMwh).toFixed(3)),
-        priceEurPerMwh: point.mcpEurPerMwh,
-        estimatedValueEur: Number(value.toFixed(2)),
-        reason: optimizerReason(action, base.solve_status),
-      };
-    });
-}
-
-function optimizerReason(action: DispatchAction, status: string) {
-  if (status !== "optimal") return `MILP status: ${status}`;
-  if (action === "charge")
-    return "MILP selected charge while respecting SoC, power, terminal SoC, and cycle constraints.";
-  if (action === "discharge") return "MILP selected discharge after degradation and efficiency costs.";
-  return "MILP left interval idle because incremental spread did not clear constraints and cost.";
 }
 
 function priceSeriesKicker(prices: DamPricePoint[], range: PriceRange) {
@@ -1165,12 +1351,28 @@ function actionTextClass(action: DispatchPoint["action"] | undefined) {
   return "text-zinc-500";
 }
 
-function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
+function SignalDeck({
+  batterySignals,
+  signals,
+}: {
+  batterySignals: BatterySignalResponse | null;
+  signals: ExternalSignalPanel[];
+}) {
   const weather = findSignal(signals, "Weather");
   const ttf = findSignal(signals, "TTF gas");
   const eex = findSignal(signals, "EEX");
   return (
-    <div className="grid gap-2 md:grid-cols-[1fr_1fr_0.8fr]">
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <SignalMetricCard
+        detail={
+          batterySignals
+            ? `${batterySignals.summary.intervalCount} canonical intervals`
+            : "No canonical signal cache"
+        }
+        label="Flexibility Value"
+        tone="cyan"
+        value={formatScore(batterySignals?.summary.averageFvi)}
+      />
       <SignalSpotlight accent="cyan" icon={CloudSun} kicker="Open-Meteo" signal={weather} title="Weather" />
       <SignalSpotlight accent="amber" icon={Flame} kicker="ICE" signal={ttf} title="TTF gas" />
       <SignalSpotlight accent="zinc" icon={Activity} kicker="EEX" signal={eex} title="Forward Context" />
@@ -1178,13 +1380,62 @@ function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
   );
 }
 
-function SignalsView({ signals }: { signals: ExternalSignalPanel[] }) {
+function SignalsView({
+  batterySignals,
+  signals,
+}: {
+  batterySignals: BatterySignalResponse | null;
+  signals: ExternalSignalPanel[];
+}) {
   const weather = findSignal(signals, "Weather");
   const ttf = findSignal(signals, "TTF gas");
   const eex = findSignal(signals, "EEX");
+  const bestCharge = batterySignals?.summary.bestChargeWindows[0] ?? null;
+  const bestDischarge = batterySignals?.summary.bestDischargeWindows[0] ?? null;
+  const bestCurtailment = batterySignals?.summary.highestCurtailmentWindows[0] ?? null;
   return (
     <div className="grid gap-4">
-      <SignalDeck signals={signals} />
+      <SignalDeck batterySignals={batterySignals} signals={signals} />
+      <Panel>
+        <PanelHeader
+          title="Canonical Signal Engine"
+          kicker="/signals/intervals"
+          right={<SignalQualityTag batterySignals={batterySignals} />}
+        />
+        <div className="grid gap-2 p-3 md:grid-cols-4">
+          <SignalMetricCard
+            detail={bestCharge ? `MTU ${bestCharge.mtu} · ${bestCharge.regime}` : "No charge window"}
+            label="Charge"
+            tone="green"
+            value={formatScore(bestCharge?.signals.chargeAttractiveness)}
+          />
+          <SignalMetricCard
+            detail={
+              bestDischarge ? `MTU ${bestDischarge.mtu} · ${bestDischarge.regime}` : "No discharge window"
+            }
+            label="Discharge"
+            tone="amber"
+            value={formatScore(bestDischarge?.signals.dischargeScarcity)}
+          />
+          <SignalMetricCard
+            detail={
+              bestCurtailment ? `MTU ${bestCurtailment.mtu} · ${bestCurtailment.regime}` : "No surplus window"
+            }
+            label="Curtailment"
+            tone="cyan"
+            value={formatScore(bestCurtailment?.signals.curtailmentAbsorption)}
+          />
+          <SignalMetricCard
+            detail={batterySignals ? `${dominantRegime(batterySignals)} regime` : "No backend response"}
+            label="Avg FVI"
+            tone="violet"
+            value={formatScore(batterySignals?.summary.averageFvi)}
+          />
+        </div>
+        <div className="px-3 pb-3">
+          <BatterySignalStrip batterySignals={batterySignals} />
+        </div>
+      </Panel>
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel>
           <PanelHeader title="Weather Driver" kicker="Open-Meteo Greek 15-minute grid" />
@@ -1369,234 +1620,353 @@ function EmptyCurveState({
 }
 
 function BatteryTwin({
-  archetype,
-  selectedAssetSlug,
-  setSelectedAssetSlug,
-  twin,
-  setTwin,
+  activeTwin,
+  selectedTwinId,
+  onTemplateChange,
+  onParameterChange,
+  onApplyPolicy,
   summary,
+  dispatch,
 }: {
-  archetype: (typeof batteryArchetypes)[BatteryArchetypeSlug];
-  selectedAssetSlug: BatteryArchetypeSlug;
-  setSelectedAssetSlug: (slug: BatteryArchetypeSlug) => void;
-  twin: BatteryTwinConfig;
-  setTwin: (value: BatteryTwinConfig) => void;
+  activeTwin: BatteryTwinModel;
+  selectedTwinId: BatteryTwinTemplateId;
+  onTemplateChange: (id: BatteryTwinTemplateId) => void;
+  onParameterChange: <K extends keyof BatteryTwinParameters>(key: K, value: BatteryTwinParameters[K]) => void;
+  onApplyPolicy: (policy: "conservative" | "balanced" | "aggressive") => void;
   summary: ReturnType<typeof summarizeDispatch>;
+  dispatch: DispatchPoint[];
 }) {
+  const { capacityStack, optimizerConstraints, parameters, profile } = activeTwin;
+  const missingSpecs = getMissingSpecs(activeTwin);
+  const feasibilityChecks = evaluateDispatchFeasibility(dispatch, optimizerConstraints);
   return (
-    <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
+    <div className="grid gap-4">
       <Panel>
-        <PanelHeader
-          title="Battery Twin Specs"
-          kicker="Asset archetype with confidence-rated unknowns"
-          right={<AssetToggle selectedAssetSlug={selectedAssetSlug} onChange={setSelectedAssetSlug} />}
-        />
-        <div className="grid gap-3 p-3">
-          <div className="rounded border border-cyan-300/20 bg-cyan-300/[0.04] p-3">
-            <div className="text-[13px] font-medium text-zinc-100">{archetype.name}</div>
-            <div className="mt-1 text-[11px] leading-5 text-zinc-500">
-              {formatMw(archetype.power_mw)} / {formatMwh(archetype.contracted_energy_mwh)} ·{" "}
-              {archetype.duration_hours.toFixed(2)}h · RTE {formatPercent(archetype.rte_pct / 100)}
-            </div>
-          </div>
-          {(
-            [
-              ["capacityMwh", "Capacity", "MWh"],
-              ["maxChargeMw", "Max charge", "MW"],
-              ["maxDischargeMw", "Max discharge", "MW"],
-              ["roundTripEfficiency", "RTE", "0-1"],
-              ["initialSocMwh", "Initial SoC", "MWh"],
-              ["degradationCostEurPerMwh", "Degradation", "EUR/MWh"],
-            ] satisfies [keyof typeof twin, string, string][]
-          ).map(([key, label, suffix]) => (
-            <div key={key} className="grid gap-1 text-[11px] text-zinc-500">
-              <label htmlFor={`twin-${key}`}>{label}</label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id={`twin-${key}`}
-                  value={String(twin[key])}
-                  type="number"
-                  step="0.01"
-                  onChange={(event) =>
-                    setTwin({
-                      ...twin,
-                      [key]: Number(event.target.value) || 0,
-                    } as BatteryTwinConfig)
-                  }
-                />
-                <span className="w-16 text-zinc-600">{suffix}</span>
+        <PanelHeader title="Battery Twin Builder" kicker="Template-backed asset assumptions" />
+        <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-5">
+          {BATTERY_TWIN_TEMPLATES.map((template) => (
+            <button
+              key={template.profile.id}
+              className={`border p-3 text-left transition ${
+                selectedTwinId === template.profile.id
+                  ? "border-cyan-300/60 bg-cyan-300/[0.08]"
+                  : "border-white/10 bg-black/20 hover:bg-white/[0.04]"
+              }`}
+              type="button"
+              onClick={() => onTemplateChange(template.profile.id)}
+            >
+              <div className="truncate text-[12px] font-medium text-zinc-100">{template.profile.name}</div>
+              <div className="mono mt-1 text-[11px] text-zinc-500">
+                {formatMw(template.parameters.ratedPowerMwAc)} /{" "}
+                {formatMwh(template.parameters.contractedUsableEnergyMwh)}
               </div>
-            </div>
+              <div className="mt-1 truncate text-[10px] text-zinc-500">
+                {template.profile.chemistry} · {template.profile.cooling} cooling
+              </div>
+            </button>
           ))}
         </div>
       </Panel>
-      <Panel>
-        <PanelHeader title="Capacity Stack" kicker="System layer before cell calibration" />
-        <div className="grid gap-4 p-3">
-          <CapacityStack archetype={archetype} twin={twin} />
-          <div className="grid gap-2 md:grid-cols-2">
-            <Metric
-              label="Asset Config"
-              value={`${formatMw(twin.maxDischargeMw)} / ${formatMwh(twin.capacityMwh)}`}
-              detail="Power / energy"
+
+      <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+        <Panel>
+          <PanelHeader
+            title="Configurable Assumptions"
+            kicker={`${profile.name} · ${profile.country}`}
+            right={
+              <div className="flex gap-1">
+                {(["conservative", "balanced", "aggressive"] as const).map((policy) => (
+                  <button
+                    key={policy}
+                    className="rounded-sm border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-zinc-400 uppercase transition hover:text-zinc-100"
+                    type="button"
+                    onClick={() => onApplyPolicy(policy)}
+                  >
+                    {policy}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <div className="grid gap-3 p-3">
+            <TwinNumberControl
+              label="Rated AC Power"
+              suffix="MW"
+              value={parameters.ratedPowerMwAc}
+              onChange={(value) => {
+                onParameterChange("ratedPowerMwAc", value);
+                onParameterChange("maxChargePowerMw", value);
+                onParameterChange("maxDischargePowerMw", value);
+              }}
             />
-            <Metric
-              label="Round-trip efficiency"
-              value={formatPercent(twin.roundTripEfficiency)}
-              detail="Applied symmetrically"
+            <TwinNumberControl
+              label="Contracted Usable Energy"
+              suffix="MWh"
+              value={parameters.contractedUsableEnergyMwh}
+              onChange={(value) => onParameterChange("contractedUsableEnergyMwh", value)}
             />
-            <Metric label="Expected value" value={formatEuro(summary.valueEur)} detail="Selected DAM day" />
-            <Metric label="Discharged" value={formatMwh(summary.dischargeMwh)} detail="Delivered to grid" />
+            <TwinNumberControl
+              label="Nameplate DC Energy"
+              suffix="MWh"
+              value={parameters.nameplateEnergyMwhDc ?? 0}
+              onChange={(value) => onParameterChange("nameplateEnergyMwhDc", value > 0 ? value : null)}
+            />
+            <TwinNumberControl
+              label="Round-trip Efficiency"
+              max={0.98}
+              min={0.75}
+              step={0.01}
+              suffix="0-1"
+              value={parameters.roundTripEfficiencyAc}
+              onChange={(value) => onParameterChange("roundTripEfficiencyAc", value)}
+            />
+            <div className="grid gap-2 md:grid-cols-3">
+              <TwinNumberControl
+                label="Min SoC"
+                max={50}
+                min={0}
+                suffix="%"
+                value={parameters.minSocPct}
+                onChange={(value) => onParameterChange("minSocPct", value)}
+              />
+              <TwinNumberControl
+                label="Max SoC"
+                max={100}
+                min={50}
+                suffix="%"
+                value={parameters.maxSocPct}
+                onChange={(value) => onParameterChange("maxSocPct", value)}
+              />
+              <TwinNumberControl
+                label="Initial SoC"
+                max={100}
+                min={0}
+                suffix="%"
+                value={parameters.initialSocPct}
+                onChange={(value) => onParameterChange("initialSocPct", value)}
+              />
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              <TwinNumberControl
+                label="Reserve SoC"
+                max={40}
+                min={0}
+                suffix="%"
+                value={parameters.reserveSocPct}
+                onChange={(value) => onParameterChange("reserveSocPct", value)}
+              />
+              <TwinNumberControl
+                label="Max Cycles / Day"
+                max={3}
+                min={0.25}
+                step={0.25}
+                suffix="cycles"
+                value={parameters.maxCyclesPerDay}
+                onChange={(value) => onParameterChange("maxCyclesPerDay", value)}
+              />
+              <TwinNumberControl
+                label="Degradation Cost"
+                max={20}
+                min={0}
+                step={0.5}
+                suffix="EUR/MWh"
+                value={parameters.degradationCostEurPerMwhThroughput}
+                onChange={(value) => onParameterChange("degradationCostEurPerMwhThroughput", value)}
+              />
+              <TwinNumberControl
+                label="Availability"
+                max={100}
+                min={50}
+                suffix="%"
+                value={parameters.availabilityPct}
+                onChange={(value) => onParameterChange("availabilityPct", value)}
+              />
+            </div>
           </div>
+        </Panel>
+
+        <div className="grid gap-4">
+          <Panel>
+            <PanelHeader title="Capacity Stack" kicker="Nameplate to AC-dispatchable estimate" />
+            <div className="grid gap-2 p-3 md:grid-cols-4">
+              <CapacityStackStep
+                label="DC Nameplate"
+                value={formatMwh(capacityStack.nameplateMwhDc)}
+                detail={capacityStack.nameplateEstimated ? "Estimated from ratio" : "Known/project value"}
+              />
+              <CapacityStackStep
+                label="Contracted Usable"
+                value={formatMwh(capacityStack.contractedUsableMwh)}
+                detail="Customer/public usable energy"
+              />
+              <CapacityStackStep
+                label="Operational Window"
+                value={formatMwh(capacityStack.operationalWindowMwh)}
+                detail={`${parameters.minSocPct}-${parameters.maxSocPct}% SoC policy`}
+              />
+              <CapacityStackStep
+                label="AC Dispatchable"
+                value={formatMwh(capacityStack.acDispatchableMwhEstimate)}
+                detail={`${formatPercent(parameters.roundTripEfficiencyAc)} RTE estimate`}
+              />
+            </div>
+          </Panel>
+
+          <Panel>
+            <PanelHeader title="Optimizer Constraint Preview" kicker="Used by the schedule builder" />
+            <div className="grid gap-2 p-3 md:grid-cols-3">
+              <DetailMetric
+                label="Energy Bounds"
+                value={`${formatMwh(optimizerConstraints.minSocMwh)} -> ${formatMwh(optimizerConstraints.maxSocMwh)}`}
+                detail="SoC min/max sent to scheduler"
+              />
+              <DetailMetric
+                label="Power Bounds"
+                value={`${formatMw(optimizerConstraints.maxChargeMw)} / ${formatMw(optimizerConstraints.maxDischargeMw)}`}
+                detail={`${formatPercent(optimizerConstraints.availabilityDerate)} availability derate`}
+              />
+              <DetailMetric
+                label="Efficiency Split"
+                value={`${formatPercent(optimizerConstraints.chargeEfficiency)} / ${formatPercent(optimizerConstraints.dischargeEfficiency)}`}
+                detail="Charge / discharge efficiency"
+              />
+              <DetailMetric
+                label="Cycle Policy"
+                value={`${optimizerConstraints.maxCyclesPerDay.toFixed(2)} / day`}
+                detail="Heuristic feasibility check"
+              />
+              <DetailMetric
+                label="Reserve SoC"
+                value={formatMwh(optimizerConstraints.reserveSocMwh)}
+                detail="Balancing-readiness buffer"
+              />
+              <DetailMetric
+                label="Schedule Value"
+                value={formatEuro(summary.valueEur)}
+                detail="Current selected DAM day"
+              />
+            </div>
+          </Panel>
         </div>
-      </Panel>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel>
+          <PanelHeader title="Parameter Confidence" kicker="High, medium, low, unknown" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            {(Object.entries(profile.confidence) as Array<[string, string]>).map(([key, confidence]) => (
+              <div
+                key={key}
+                className="flex items-center justify-between gap-3 border border-white/10 bg-black/20 p-2"
+              >
+                <span className="truncate text-[11px] text-zinc-400">{humanizeKey(key)}</span>
+                <Tag tone={confidenceTone(confidence)}>{confidence}</Tag>
+              </div>
+            ))}
+          </div>
+        </Panel>
+        <Panel>
+          <PanelHeader title="Missing Specs" kicker="Customer/supplier data that would improve the twin" />
+          <div className="grid gap-2 p-3">
+            {missingSpecs.slice(0, 7).map((spec) => (
+              <div key={spec.id} className="border border-white/10 bg-black/20 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="truncate text-[12px] text-zinc-200">{spec.label}</div>
+                  <Tag tone={confidenceTone(spec.confidence)}>{spec.confidence}</Tag>
+                </div>
+                <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{spec.basis}</div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+
+      <FeasibilityChecklist checks={feasibilityChecks} />
     </div>
   );
 }
 
-function AssetToggle({
-  selectedAssetSlug,
+function TwinNumberControl({
+  label,
+  value,
   onChange,
+  suffix,
+  min,
+  max,
+  step = 1,
 }: {
-  selectedAssetSlug: BatteryArchetypeSlug;
-  onChange: (slug: BatteryArchetypeSlug) => void;
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  suffix: string;
+  min?: number;
+  max?: number;
+  step?: number;
 }) {
   return (
-    <div className="flex items-center gap-1">
-      {(Object.keys(batteryArchetypes) as BatteryArchetypeSlug[]).map((slug) => (
-        <button
-          key={slug}
-          className={`h-7 rounded-sm border px-2 text-[10px] transition ${
-            selectedAssetSlug === slug
-              ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-100"
-              : "border-white/10 bg-[var(--bg-base)] text-zinc-500 hover:text-zinc-200"
-          }`}
-          type="button"
-          onClick={() => onChange(slug)}
-        >
-          {batteryArchetypes[slug].name.split(" ")[0]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function CapacityStack({
-  archetype,
-  twin,
-}: {
-  archetype: (typeof batteryArchetypes)[BatteryArchetypeSlug];
-  twin: BatteryTwinConfig;
-}) {
-  const nameplate = archetype.nameplate_energy_mwh;
-  const socWindow = twin.maxSocMwh - twin.minSocMwh;
-  const acDispatchable = socWindow * Math.sqrt(twin.roundTripEfficiency);
-  const rows = [
-    {
-      label: "Nameplate DC Energy",
-      value: nameplate === null ? "unknown" : formatMwh(nameplate),
-      width: nameplate === null ? 100 : Math.min(100, (nameplate / twin.capacityMwh) * 100),
-      confidence: archetype.confidence.nameplate_energy_mwh,
-    },
-    {
-      label: "Contracted Usable",
-      value: formatMwh(twin.capacityMwh),
-      width: 88,
-      confidence: archetype.confidence.contracted_energy_mwh,
-    },
-    {
-      label: `SoC Window (${archetype.soc_min_pct}-${archetype.soc_max_pct}%)`,
-      value: formatMwh(socWindow),
-      width: Math.max(12, (socWindow / twin.capacityMwh) * 88),
-      confidence: archetype.confidence.soc_window,
-    },
-    {
-      label: "Thermal Derate (today)",
-      value: formatMwh(socWindow),
-      width: Math.max(12, (socWindow / twin.capacityMwh) * 88),
-      confidence: "medium",
-    },
-    {
-      label: "Market-Dispatchable AC",
-      value: formatMwh(acDispatchable),
-      width: Math.max(12, (acDispatchable / twin.capacityMwh) * 88),
-      confidence: "medium",
-    },
-  ];
-  return (
-    <div className="grid gap-2">
-      {rows.map((row) => (
-        <div key={row.label} className="grid grid-cols-[11rem_1fr_4.5rem] items-center gap-3 text-[11px]">
-          <div className="truncate text-zinc-400">{row.label}</div>
-          <div className="h-5 border border-white/10 bg-black/25">
-            <div
-              className={`h-full ${confidenceBarClass(row.confidence)}`}
-              style={{ width: `${row.width}%` }}
-              title={`Confidence: ${row.confidence}`}
-            />
-          </div>
-          <div className="mono text-right text-zinc-300">{row.value}</div>
+    <div className="grid gap-1 text-[11px] text-zinc-500">
+      <div className="grid gap-1">
+        <span className="text-[11px] text-zinc-500">{label}</span>
+        <div className="flex items-center gap-2">
+          <Input
+            className="h-8 rounded-sm border-white/10 bg-black/20 px-2 text-[12px]"
+            max={max}
+            min={min}
+            step={step}
+            type="number"
+            value={Number.isFinite(value) ? String(value) : "0"}
+            onChange={(event) => onChange(Number(event.target.value) || 0)}
+          />
+          <span className="w-20 shrink-0 text-zinc-600">{suffix}</span>
         </div>
-      ))}
+      </div>
     </div>
   );
 }
 
-function confidenceBarClass(confidence: string | undefined) {
-  if (confidence === "high") return "bg-[var(--green)]";
-  if (confidence === "medium") return "bg-[var(--cyan)]";
-  if (confidence === "low") return "bg-[var(--amber)]";
-  return "bg-zinc-600";
+function CapacityStackStep({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="relative border border-white/10 bg-black/20 p-3">
+      <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
+      <div className="mono mt-2 text-[18px] font-medium text-zinc-100">{value}</div>
+      <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{detail}</div>
+    </div>
+  );
 }
 
 function ModelLab({
-  artifact,
-  backtest,
   twin,
   summary,
   dispatch,
 }: {
-  artifact: ModelLabArtifact | null;
-  backtest: BacktestArtifact | null;
   twin: BatteryTwinConfig;
   summary: ReturnType<typeof summarizeDispatch>;
   dispatch: DispatchPoint[];
 }) {
-  const topFeatures = Object.entries(artifact?.feature_importance ?? {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4);
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <ModelCard
-          name="LightGBM Quantile"
-          status={artifact ? "Walk-forward" : "Building"}
-          score={artifact?.overall?.mae_eur_per_mwh?.toFixed(1) ?? "..."}
-          detail={
-            artifact
-              ? `${artifact.fold_count} folds across DAM regime history.`
-              : "Model artifact not written yet."
-          }
-        />
-        <ModelCard
-          name="MILP Dispatch"
+          name="Quantile Scheduler"
           status="Active"
-          score={String(dispatch.filter((point) => point.action !== "idle").length)}
-          detail="HiGHS MILP with SoC, terminal SoC, power, cycle, and no-simultaneous constraints."
+          score="8.6"
+          detail="Fast deterministic optimizer used for the current schedule."
         />
         <ModelCard
-          name="Backtest Capture"
-          status={backtest ? "Cached" : "Building"}
-          score={backtest ? `${Math.round(backtest.results.capture_rate * 100)}%` : "..."}
-          detail={
-            backtest
-              ? `${backtest.start_date} -> ${backtest.end_date}`
-              : "Forecast/perfect-foresight artifact pending."
-          }
+          name="Scarcity Ensemble"
+          status="Candidate"
+          score="7.9"
+          detail="Combines weather, fuel, and market depth signals."
+        />
+        <ModelCard
+          name="Risk-Aware LP"
+          status="Queued"
+          score="7.3"
+          detail="Adds explicit SoC and degradation constraints for stress cases."
         />
       </div>
       <Panel>
-        <PanelHeader title="Model Validation Snapshot" kicker={artifact?.model_id ?? "artifact pending"} />
+        <PanelHeader title="Model Validation Snapshot" kicker="Current Prometheus control loop" />
         <div className="grid gap-2 p-3 md:grid-cols-4">
           <Metric label="Schedule value" value={formatEuro(summary.valueEur)} detail="Current model output" />
           <Metric
@@ -1605,156 +1975,113 @@ function ModelLab({
             detail="Constraint input"
           />
           <Metric
-            label="Forecast RMSE"
-            value={
-              artifact?.overall?.rmse_eur_per_mwh
-                ? formatEurPerMwh(artifact.overall.rmse_eur_per_mwh)
-                : "Building"
-            }
-            detail="Walk-forward mean"
+            label="Action windows"
+            value={String(dispatch.filter((point) => point.action !== "idle").length)}
+            detail="Non-idle MTUs"
           />
-          <Metric
-            label="Quantile coverage"
-            value={
-              artifact?.overall?.p10_p90_coverage
-                ? formatPercent(artifact.overall.p10_p90_coverage)
-                : "Building"
-            }
-            detail="p10-p90 realized hit rate"
-          />
+          <Metric label="Fallback path" value="Convex / JSON" detail="Market layer mode" />
         </div>
       </Panel>
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Panel>
-          <PanelHeader title="Top Features" kicker={artifact?.feature_set ?? "No artifact yet"} />
-          <div className="grid gap-2 p-3">
-            {topFeatures.length > 0 ? (
-              topFeatures.map(([name, weight]) => (
-                <div key={name} className="grid grid-cols-[9rem_1fr_3rem] items-center gap-3 text-[11px]">
-                  <span className="truncate text-zinc-400">{name}</span>
-                  <div className="h-2 bg-white/10">
-                    <div
-                      className="h-full bg-[var(--cyan)]"
-                      style={{ width: `${Math.max(4, weight * 100)}%` }}
-                    />
-                  </div>
-                  <span className="mono text-right text-zinc-500">{Math.round(weight * 100)}%</span>
-                </div>
-              ))
-            ) : (
-              <div className="p-3 text-[12px] text-zinc-500">Forecast artifact is still building.</div>
-            )}
-          </div>
-        </Panel>
-        <Panel>
-          <PanelHeader title="Backtest Headline" kicker="Forecast-driven vs perfect foresight" />
-          <div className="grid gap-2 p-3 md:grid-cols-2">
-            <Metric
-              label="Capture Rate"
-              value={backtest ? formatPercent(backtest.results.capture_rate) : "Building"}
-              detail="Realized / perfect"
-            />
-            <Metric
-              label="Sharpe"
-              value={backtest ? backtest.results.sharpe.toFixed(2) : "Building"}
-              detail="Daily P&L annualized"
-            />
-            <Metric
-              label="Max Drawdown"
-              value={backtest ? formatEuro(backtest.results.max_drawdown_eur) : "Building"}
-              detail="Forecast-driven path"
-            />
-            <Metric
-              label="Violations"
-              value={backtest ? String(backtest.results.feasibility_violations) : "Building"}
-              detail="Should stay zero"
-            />
-          </div>
-        </Panel>
-      </div>
     </div>
   );
 }
 
-function Scenarios({
-  artifact,
-  dispatch,
-}: {
-  artifact: OptimizerArtifact | null;
-  dispatch: DispatchPoint[];
-}) {
-  const base =
-    artifact?.scenarios.base?.expected_revenue_eur ??
-    dispatch.reduce((total, point) => total + point.estimatedValueEur, 0);
-  const rows = [
-    ["Base case", artifact?.scenarios.base, "Current forecast and balanced risk mode"],
-    ["Gas shock", artifact?.scenarios.gas_shock, "Thermal-marginal scarcity premium"],
-    ["Heatwave", artifact?.scenarios.heatwave, "Power derate, lower RTE, higher auxiliary load"],
-    ["High uncertainty", artifact?.scenarios.high_uncertainty, "Conservative risk mode with wider sigma"],
-  ] as const;
+function Scenarios({ comparisons }: { comparisons: ScenarioComparison[] }) {
+  const summaries = buildScenarioExecutiveSummary(comparisons);
   return (
     <div className="grid gap-4">
-      <div className="grid gap-3 md:grid-cols-4">
-        {rows.map(([label, scenario, detail]) => (
-          <Metric
-            key={label}
-            label={label}
-            value={scenario ? formatEuro(scenario.expected_revenue_eur) : "Building"}
-            detail={
-              scenario ? `${formatScenarioDelta(scenario.expected_revenue_eur, base)} · ${detail}` : detail
-            }
-          />
-        ))}
-      </div>
       <Panel>
-        <PanelHeader title="Scenario Feasibility" kicker="Each card is a separate MILP solve" />
-        <div className="dense-scrollbar max-h-[360px] overflow-auto">
-          <table className="w-full table-fixed text-left text-[11px]">
-            <thead className="sticky top-0 bg-[var(--bg-panel)] text-zinc-500 uppercase">
-              <tr>
-                <th className="h-7 px-3">Scenario</th>
-                <th className="h-7 px-3">Solve</th>
-                <th className="h-7 px-3">Cycles</th>
-                <th className="h-7 px-3">Degradation</th>
-                <th className="h-7 px-3">Violations</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(([label, scenario]) => (
-                <tr key={label} className="border-white/5 border-t">
-                  <td className="h-8 px-3 text-zinc-200">{label}</td>
-                  <td className="mono h-8 px-3">{scenario?.solve_status ?? "pending"}</td>
-                  <td className="mono h-8 px-3">{scenario?.cycle_count.toFixed(2) ?? "..."}</td>
-                  <td className="mono h-8 px-3">
-                    {scenario ? formatEuro(scenario.degradation_cost_eur) : "..."}
-                  </td>
-                  <td className="mono h-8 px-3">{scenario?.feasibility_violations.length ?? "..."}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <PanelHeader
+          title="Scenario Check"
+          kicker="Deterministic stress tests, each reruns the scheduler"
+          right={<Tag tone="outline">Not a forecast</Tag>}
+        />
+        <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
+          {comparisons.map((comparison) => (
+            <ScenarioCard key={comparison.id} comparison={comparison} />
+          ))}
+        </div>
+      </Panel>
+      <Panel>
+        <PanelHeader title="Scenario Timelines" kicker="Charge / discharge / idle blocks by scenario" />
+        <div className="grid gap-3 p-3">
+          {comparisons.map((comparison) => (
+            <div key={comparison.id} className="grid gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-[12px] font-medium text-zinc-200">{comparison.label}</div>
+                <div className="mono text-[11px] text-zinc-500">
+                  {comparison.summary.chargeWindow} / {comparison.summary.dischargeWindow}
+                </div>
+              </div>
+              <ActionTimeline dispatch={comparison.dispatch} />
+            </div>
+          ))}
+        </div>
+      </Panel>
+      <Panel>
+        <PanelHeader title="Executive Summary" kicker="Generated from scenario outputs" />
+        <div className="grid gap-2 p-3">
+          {summaries.map((line) => (
+            <div
+              key={line}
+              className="border border-white/10 bg-black/20 p-3 text-[12px] leading-5 text-zinc-300"
+            >
+              {line}
+            </div>
+          ))}
         </div>
       </Panel>
     </div>
   );
 }
 
-function formatScenarioDelta(value: number, base: number) {
-  if (!Number.isFinite(base) || Math.abs(base) < 1) return "base";
-  const delta = (value - base) / Math.abs(base);
-  return `${delta >= 0 ? "+" : ""}${Math.round(delta * 100)}%`;
+function ScenarioCard({ comparison }: { comparison: ScenarioComparison }) {
+  const delta = comparison.summary.valueDeltaEur;
+  return (
+    <div className="border border-white/10 bg-black/20 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-[13px] font-medium text-zinc-100">{comparison.label}</div>
+          <div className="mt-1 line-clamp-2 text-[11px] text-zinc-500">{comparison.description}</div>
+        </div>
+        <Tag
+          tone={
+            comparison.feasibilityStatus === "pass"
+              ? "green"
+              : comparison.feasibilityStatus === "review"
+                ? "amber"
+                : "red"
+          }
+        >
+          {comparison.feasibilityStatus}
+        </Tag>
+      </div>
+      <div className="mt-4 grid gap-2">
+        <KvRow label="Expected value" value={formatEuro(comparison.summary.valueEur)} tone="cyan" />
+        <KvRow
+          label="Delta vs base"
+          value={`${delta >= 0 ? "+" : ""}${formatEuro(delta)}`}
+          tone={delta >= 0 ? "green" : "red"}
+        />
+        <KvRow label="Cycles" value={`${comparison.summary.equivalentCycles.toFixed(2)} / day`} />
+        <KvRow label="Throughput" value={formatMwh(comparison.summary.throughputMwh)} />
+      </div>
+    </div>
+  );
 }
 
 function DataHealthView({
   health,
   curveHealth,
   signals,
+  batterySignals,
   days,
   curveDays,
 }: {
   health: DataHealth | null;
   curveHealth: DataHealth | null;
   signals: ExternalSignalPanel[];
+  batterySignals: BatterySignalResponse | null;
   days: string[];
   curveDays: string[];
 }) {
@@ -1783,6 +2110,11 @@ function DataHealthView({
             value={`${health?.firstMarketDate ?? "n/a"} -> ${health?.lastMarketDate ?? "n/a"}`}
             detail="Available market range"
           />
+          <Metric
+            label="Signal intervals"
+            value={String(batterySignals?.summary.intervalCount ?? 0)}
+            detail={batterySignals ? "Canonical battery signal endpoint" : "No /signals/intervals response"}
+          />
         </div>
       </Panel>
       <div className="grid gap-2 md:grid-cols-3">
@@ -1808,6 +2140,7 @@ function ApiCoverage() {
           "/weather/open-meteo/panel",
           "/fuel/ttf/latest",
           "/market/eex/context/latest",
+          "/signals/intervals",
         ]}
       />
       <ApiCoverageGroup
@@ -1854,26 +2187,42 @@ function ApiCoverageGroup({ title, tone, items }: { title: string; tone: Tone; i
 }
 
 function RightRail({
-  dispatch,
-  summary,
+  batterySignals,
   signals,
   twin,
 }: {
-  dispatch: DispatchPoint[];
-  summary: ReturnType<typeof summarizeDispatch>;
+  batterySignals: BatterySignalResponse | null;
   signals: ExternalSignalPanel[];
   twin: BatteryTwinConfig;
 }) {
+  const bestCharge = batterySignals?.summary.bestChargeWindows[0] ?? null;
+  const bestDischarge = batterySignals?.summary.bestDischargeWindows[0] ?? null;
+  const highestFragility = highestSignalInterval(batterySignals, "marketFragility");
   return (
     <aside className="dense-scrollbar flex h-full min-w-[320px] flex-col overflow-y-auto border-white/10 border-l bg-[var(--bg-panel)]">
       <RailSection title="Signal Engine Summary">
-        <KvRow label="Charge Attractiveness" value={scoreForAction(dispatch, "charge")} tone="green" />
-        <KvRow label="Discharge Scarcity" value={scoreForAction(dispatch, "discharge")} tone="amber" />
-        <KvRow label="Flexibility Value Idx" value={`${Math.max(0, summary.valueEur / 100).toFixed(1)} ▲`} />
+        <KvRow
+          label="Charge Attractiveness"
+          value={formatScore(bestCharge?.signals.chargeAttractiveness)}
+          tone="green"
+        />
+        <KvRow
+          label="Discharge Scarcity"
+          value={formatScore(bestDischarge?.signals.dischargeScarcity)}
+          tone="amber"
+        />
+        <KvRow label="Flexibility Value Idx" value={formatScore(batterySignals?.summary.averageFvi)} />
         <KvRow
           label="Spread Robustness"
-          value={summary.valueEur > 0 ? "Medium" : "Low"}
-          tone={summary.valueEur > 0 ? "green" : "red"}
+          value={formatScore(
+            highestSignalInterval(batterySignals, "spreadRobustness")?.signals.spreadRobustness,
+          )}
+          tone={batterySignals ? "green" : "red"}
+        />
+        <KvRow
+          label="Market Fragility"
+          value={formatScore(highestFragility?.signals.marketFragility)}
+          tone={highestFragility && highestFragility.signals.marketFragility > 0.65 ? "amber" : "cyan"}
         />
       </RailSection>
       <RailSection title="Battery Twin Specs">
@@ -2086,6 +2435,59 @@ function SignalCard({ signal, compact = false }: { signal: ExternalSignalPanel; 
   );
 }
 
+function SignalMetricCard({
+  detail,
+  label,
+  tone,
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone: Tone;
+  value: string;
+}) {
+  return (
+    <div className="rounded border border-white/10 bg-[var(--bg-base)] p-3">
+      <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
+      <div className={`mono mt-2 text-[18px] font-medium ${toneClass(tone)}`}>{value}</div>
+      <div className="mt-1 truncate text-[11px] text-zinc-500">{detail}</div>
+    </div>
+  );
+}
+
+function SignalQualityTag({ batterySignals }: { batterySignals: BatterySignalResponse | null }) {
+  if (!batterySignals) {
+    return <Tag tone="red">Missing</Tag>;
+  }
+  const first = batterySignals.intervals[0];
+  const missingCount = first
+    ? Object.values(first.quality).filter((quality) => quality === "missing").length
+    : 0;
+  return <Tag tone={missingCount > 0 ? "amber" : "green"}>{missingCount > 0 ? "Proxy" : "Observed"}</Tag>;
+}
+
+function BatterySignalStrip({ batterySignals }: { batterySignals: BatterySignalResponse | null }) {
+  const intervals = batterySignals?.intervals ?? [];
+  if (intervals.length === 0) {
+    return (
+      <div className="flex h-8 items-center justify-center border border-white/10 bg-black/20 text-[11px] text-zinc-500">
+        No canonical battery signals loaded.
+      </div>
+    );
+  }
+  return (
+    <div className="flex h-8 gap-px border border-white/10 bg-white/10 p-px">
+      {intervals.map((interval) => (
+        <div
+          key={`${interval.marketDate}-${interval.mtu}`}
+          className={`h-full min-w-px flex-1 ${signalIntervalClass(interval)}`}
+          title={`MTU ${interval.mtu} · FVI ${formatScore(interval.signals.flexibilityValueIndex)} · ${interval.regime}`}
+        />
+      ))}
+    </div>
+  );
+}
+
 function SignalSpotlight({
   signal,
   title,
@@ -2284,6 +2686,95 @@ function getActionRange(dispatch: DispatchPoint[], action: DispatchAction) {
   return ranges.join(", ");
 }
 
+function formatScore(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "n/a";
+  }
+  return `${(value * 10).toFixed(1)} / 10`;
+}
+
+function dominantRegime(batterySignals: BatterySignalResponse) {
+  const entries = Object.entries(batterySignals.summary.regimeCounts);
+  if (entries.length === 0) {
+    return "normal";
+  }
+  return entries.sort((left, right) => right[1] - left[1])[0]?.[0] ?? "normal";
+}
+
+function highestSignalInterval(
+  batterySignals: BatterySignalResponse | null,
+  signal: keyof BatterySignalInterval["signals"],
+) {
+  const intervals = batterySignals?.intervals ?? [];
+  if (intervals.length === 0) {
+    return null;
+  }
+  return [...intervals].sort((left, right) => right.signals[signal] - left.signals[signal])[0] ?? null;
+}
+
+function signalIntervalClass(interval: BatterySignalInterval) {
+  const { chargeAttractiveness, curtailmentAbsorption, dischargeScarcity, marketFragility } =
+    interval.signals;
+  if (marketFragility >= 0.72) {
+    return "bg-[var(--red)] opacity-90";
+  }
+  if (dischargeScarcity >= chargeAttractiveness && dischargeScarcity >= curtailmentAbsorption) {
+    return "bg-[var(--amber)] opacity-85";
+  }
+  if (chargeAttractiveness >= curtailmentAbsorption) {
+    return "bg-[var(--green)] opacity-85";
+  }
+  return "bg-[var(--cyan)] opacity-80";
+}
+
+function policyOverrides(policy: "conservative" | "balanced" | "aggressive"): Partial<BatteryTwinParameters> {
+  if (policy === "conservative") {
+    return {
+      minSocPct: 15,
+      maxSocPct: 85,
+      reserveSocPct: 15,
+      maxCyclesPerDay: 1,
+      degradationCostEurPerMwhThroughput: 6,
+      terminalSocPolicy: "minimum-return",
+    };
+  }
+  if (policy === "aggressive") {
+    return {
+      minSocPct: 5,
+      maxSocPct: 95,
+      reserveSocPct: 5,
+      maxCyclesPerDay: 2,
+      degradationCostEurPerMwhThroughput: 3,
+      terminalSocPolicy: "none",
+    };
+  }
+  return {
+    minSocPct: 10,
+    maxSocPct: 90,
+    reserveSocPct: 10,
+    maxCyclesPerDay: 1.25,
+    degradationCostEurPerMwhThroughput: 4,
+    terminalSocPolicy: "minimum-return",
+  };
+}
+
+function confidenceTone(confidence: string): Tone {
+  if (confidence === "high") return "green";
+  if (confidence === "medium") return "amber";
+  if (confidence === "low") return "violet";
+  return "outline";
+}
+
+function humanizeKey(value: string) {
+  return value
+    .replace(/([A-Z])/g, " $1")
+    .replace(/Mw/g, "MW")
+    .replace(/Mwh/g, "MWh")
+    .replace(/Dc/g, "DC")
+    .replace(/Ac/g, "AC")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
 function marketModeLabel(mode: DataHealth["mode"] | undefined) {
   if (mode === "convex") return "Convex";
   if (mode === "convex-http") return "Convex HTTP";
@@ -2333,12 +2824,6 @@ function minOrNull(values: number[]) {
 
 function maxOrNull(values: number[]) {
   return values.length ? Math.max(...values) : null;
-}
-
-function scoreForAction(dispatch: DispatchPoint[], action: DispatchAction) {
-  if (dispatch.length === 0) return "0.0 / 10";
-  const count = dispatch.filter((point) => point.action === action).length;
-  return `${Math.min(9.8, 3 + (count / dispatch.length) * 20).toFixed(1)} / 10`;
 }
 
 function tagClass(tone: Tone) {

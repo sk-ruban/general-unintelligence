@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { ExternalSignalPanel } from "@/lib/types";
+import type { BatterySignalResponse, BatteryTwinConfig, ExternalSignalPanel } from "@/lib/types";
 import { getConvexSiteUrl } from "./convex-url";
 import { formatEurPerMwh } from "./format";
 
@@ -45,6 +45,23 @@ export async function loadExternalSignals(): Promise<SignalResult> {
     siteUrl,
     panels: [weatherPanel(weather), ttfPanel(ttf), eexPanel(eex)],
   };
+}
+
+export async function loadBatterySignalEngine(args: {
+  date: string;
+  twin: Pick<BatteryTwinConfig, "initialSocMwh" | "minSocMwh" | "maxSocMwh">;
+}): Promise<BatterySignalResponse | null> {
+  const siteUrl = getConvexSiteUrl();
+  if (!siteUrl || !args.date) {
+    return null;
+  }
+  const searchParams = new URLSearchParams({
+    date: args.date,
+    initialSocMwh: String(args.twin.initialSocMwh),
+    minSocMwh: String(args.twin.minSocMwh),
+    maxSocMwh: String(args.twin.maxSocMwh),
+  });
+  return await fetchJson(`${siteUrl}/signals/intervals?${searchParams.toString()}`);
 }
 
 async function fetchHydratedJson(
