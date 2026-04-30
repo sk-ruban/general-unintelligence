@@ -63,6 +63,12 @@ export type ModelLabArtifact = {
   overall?: Record<string, number>;
   by_year?: Record<string, { mae_eur_per_mwh: number; rows: number }>;
   feature_importance?: Record<string, number>;
+  supporting_context?: {
+    name: string;
+    role: string;
+    status: "context_only" | string;
+    history: string;
+  }[];
 };
 
 export type BacktestArtifact = {
@@ -75,6 +81,15 @@ export type BacktestArtifact = {
     sharpe: number;
     max_drawdown_eur: number;
     feasibility_violations: number;
+    risk_adjusted?: {
+      mode: string;
+      annualized_eur_per_mw_per_year: Record<string, number>;
+      capture_rate: number;
+      sharpe: number;
+      max_drawdown_eur: number;
+      feasibility_violations: number;
+      mean_cycles_per_day: number;
+    };
   };
 };
 

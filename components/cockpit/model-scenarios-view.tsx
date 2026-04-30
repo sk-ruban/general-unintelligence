@@ -24,7 +24,7 @@ export function ModelLab({
     .slice(0, 4);
   return (
     <div className="grid gap-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <ModelCard
           name="LightGBM Quantile"
           status={artifact ? "Walk-forward" : "Building"}
@@ -48,6 +48,12 @@ export function ModelLab({
               ? `${backtest.start_date} -> ${backtest.end_date}`
               : "Forecast/perfect-foresight artifact pending."
           }
+        />
+        <ModelCard
+          name="Risk-Aware Capture"
+          status={backtest?.results.risk_adjusted ? "Quantile" : "Building"}
+          score={backtest?.results.risk_adjusted ? `${Math.round(backtest.results.risk_adjusted.capture_rate * 100)}%` : "..."}
+          detail="Conservative MILP consumes p10-p90 forecast width as an uncertainty penalty."
         />
       </div>
       <Panel>
@@ -102,6 +108,27 @@ export function ModelLab({
           </div>
         </Panel>
         <Panel>
+          <PanelHeader title="Supporting Context" kicker="Shown to operators, not claimed as full-history CV features" />
+          <div className="grid gap-2 p-3">
+            {(artifact?.supporting_context ?? []).length > 0 ? (
+              artifact?.supporting_context?.map((context) => (
+                <div key={context.name} className="border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[12px] font-medium text-zinc-100">{context.name}</div>
+                    <Tag tone="amber">Context</Tag>
+                  </div>
+                  <div className="mt-1 text-[11px] text-zinc-400">{context.role}</div>
+                  <div className="mt-2 text-[10px] text-zinc-500">{context.history}</div>
+                </div>
+              ))
+            ) : (
+              <div className="p-3 text-[12px] text-zinc-500">Supporting context artifact is still building.</div>
+            )}
+          </div>
+        </Panel>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel>
           <PanelHeader title="Backtest Headline" kicker="Forecast-driven vs perfect foresight" />
           <div className="grid gap-2 p-3 md:grid-cols-2">
             <Metric
@@ -123,6 +150,16 @@ export function ModelLab({
               label="Violations"
               value={backtest ? String(backtest.results.feasibility_violations) : "Building"}
               detail="Should stay zero"
+            />
+            <Metric
+              label="Risk-Adj Capture"
+              value={backtest?.results.risk_adjusted ? formatPercent(backtest.results.risk_adjusted.capture_rate) : "Building"}
+              detail="Quantile-penalized MILP"
+            />
+            <Metric
+              label="Risk-Adj Cycles"
+              value={backtest?.results.risk_adjusted ? backtest.results.risk_adjusted.mean_cycles_per_day.toFixed(2) : "Building"}
+              detail="Mean cycles / day"
             />
           </div>
         </Panel>
