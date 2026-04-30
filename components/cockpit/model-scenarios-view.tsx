@@ -1,9 +1,11 @@
+import { BarChart3, BrainCircuit, GitCompareArrows, Target } from "lucide-react";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import type { summarizeDispatch } from "@/lib/battery-dispatch";
 import { formatEuro, formatEurPerMwh, formatMwh, formatPercent } from "@/lib/format";
+import { formatMarketIntervalWindow } from "@/lib/market-time";
 import { buildScenarioExecutiveSummary, type ScenarioComparison } from "@/lib/scenario-comparison";
 import type { BatteryTwinConfig, DispatchPoint } from "@/lib/types";
-import { Metric, Tag, type Tone, toneClass } from "./shared";
+import { Metric, PageActionButton, PageIntro, Tag, type Tone, toneClass } from "./shared";
 import type { BacktestArtifact, ModelLabArtifact, OptimizerArtifact } from "./use-cockpit-state";
 
 export function ModelLab({
@@ -24,6 +26,24 @@ export function ModelLab({
     .slice(0, 4);
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Model Lab"
+        title="Forecast And Optimizer Validation"
+        description="Validates the forecast and optimizer artifacts, showing revenue capture, error bands, feature drivers, and the evidence behind the schedule."
+        actions={
+          <>
+            <PageActionButton onClick={() => scrollToCockpitSection("model-validation")}>
+              <BrainCircuit className="size-3.5" />
+              Validation
+            </PageActionButton>
+            <PageActionButton onClick={() => scrollToCockpitSection("model-features")}>
+              <BarChart3 className="size-3.5" />
+              Features
+            </PageActionButton>
+            <Tag tone={artifact ? "green" : "amber"}>{artifact ? "Artifact ready" : "Building"}</Tag>
+          </>
+        }
+      />
       <div className="grid gap-3 md:grid-cols-4">
         <ModelCard
           name="LightGBM Quantile"
@@ -52,13 +72,17 @@ export function ModelLab({
         <ModelCard
           name="Risk-Aware Capture"
           status={backtest?.results.risk_adjusted ? "Quantile" : "Building"}
-          score={backtest?.results.risk_adjusted ? `${Math.round(backtest.results.risk_adjusted.capture_rate * 100)}%` : "..."}
+          score={
+            backtest?.results.risk_adjusted
+              ? `${Math.round(backtest.results.risk_adjusted.capture_rate * 100)}%`
+              : "..."
+          }
           detail="Conservative MILP consumes p10-p90 forecast width as an uncertainty penalty."
         />
       </div>
       <Panel>
         <PanelHeader title="Model Validation Snapshot" kicker={artifact?.model_id ?? "artifact pending"} />
-        <div className="grid gap-2 p-3 md:grid-cols-4">
+        <div id="model-validation" className="grid scroll-mt-4 gap-2 p-3 md:grid-cols-4">
           <Metric label="Schedule value" value={formatEuro(summary.valueEur)} detail="Current model output" />
           <Metric
             label="Twin RTE"
@@ -88,7 +112,7 @@ export function ModelLab({
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel>
           <PanelHeader title="Top Features" kicker={artifact?.feature_set ?? "No artifact yet"} />
-          <div className="grid gap-2 p-3">
+          <div id="model-features" className="grid scroll-mt-4 gap-2 p-3">
             {topFeatures.length > 0 ? (
               topFeatures.map(([name, weight]) => (
                 <div key={name} className="grid grid-cols-[9rem_1fr_3rem] items-center gap-3 text-[11px]">
@@ -108,7 +132,10 @@ export function ModelLab({
           </div>
         </Panel>
         <Panel>
-          <PanelHeader title="Supporting Context" kicker="Shown to operators, not claimed as full-history CV features" />
+          <PanelHeader
+            title="Supporting Context"
+            kicker="Shown to operators, not claimed as full-history CV features"
+          />
           <div className="grid gap-2 p-3">
             {(artifact?.supporting_context ?? []).length > 0 ? (
               artifact?.supporting_context?.map((context) => (
@@ -122,7 +149,9 @@ export function ModelLab({
                 </div>
               ))
             ) : (
-              <div className="p-3 text-[12px] text-zinc-500">Supporting context artifact is still building.</div>
+              <div className="p-3 text-[12px] text-zinc-500">
+                Supporting context artifact is still building.
+              </div>
             )}
           </div>
         </Panel>
@@ -153,12 +182,20 @@ export function ModelLab({
             />
             <Metric
               label="Risk-Adj Capture"
-              value={backtest?.results.risk_adjusted ? formatPercent(backtest.results.risk_adjusted.capture_rate) : "Building"}
+              value={
+                backtest?.results.risk_adjusted
+                  ? formatPercent(backtest.results.risk_adjusted.capture_rate)
+                  : "Building"
+              }
               detail="Quantile-penalized MILP"
             />
             <Metric
               label="Risk-Adj Cycles"
-              value={backtest?.results.risk_adjusted ? backtest.results.risk_adjusted.mean_cycles_per_day.toFixed(2) : "Building"}
+              value={
+                backtest?.results.risk_adjusted
+                  ? backtest.results.risk_adjusted.mean_cycles_per_day.toFixed(2)
+                  : "Building"
+              }
               detail="Mean cycles / day"
             />
           </div>
@@ -208,6 +245,24 @@ export function Scenarios({
   const summaries = buildScenarioExecutiveSummary(comparisons);
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Scenario Planner"
+        title="Stress-Test Dispatch Outcomes"
+        description="Compares stress-test reruns for gas shocks, heatwaves, and uncertainty so operators can see value, feasibility, cycles, and confidence before committing."
+        actions={
+          <>
+            <PageActionButton onClick={() => scrollToCockpitSection("scenario-check")}>
+              <GitCompareArrows className="size-3.5" />
+              Compare cases
+            </PageActionButton>
+            <PageActionButton onClick={() => scrollToCockpitSection("scenario-summary")}>
+              <Target className="size-3.5" />
+              Summary
+            </PageActionButton>
+            <Tag tone="outline">{comparisons.length} scenarios</Tag>
+          </>
+        }
+      />
       {optimizerArtifact ? <OptimizerScenarioPanel artifact={optimizerArtifact} dispatch={dispatch} /> : null}
       <Panel>
         <PanelHeader
@@ -215,7 +270,7 @@ export function Scenarios({
           kicker="Deterministic stress tests, each reruns the scheduler"
           right={<Tag tone="outline">Not a forecast</Tag>}
         />
-        <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
+        <div id="scenario-check" className="grid scroll-mt-4 gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
           {comparisons.map((comparison) => (
             <ScenarioCard key={comparison.id} comparison={comparison} />
           ))}
@@ -239,7 +294,7 @@ export function Scenarios({
       </Panel>
       <Panel>
         <PanelHeader title="Executive Summary" kicker="Generated from scenario outputs" />
-        <div className="grid gap-2 p-3">
+        <div id="scenario-summary" className="grid scroll-mt-4 gap-2 p-3">
           {summaries.map((line) => (
             <div
               key={line}
@@ -252,6 +307,10 @@ export function Scenarios({
       </Panel>
     </div>
   );
+}
+
+function scrollToCockpitSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function OptimizerScenarioPanel({
@@ -354,7 +413,7 @@ function ActionTimeline({ dispatch }: { dispatch: DispatchPoint[] }) {
                 ? "bg-[var(--amber)] opacity-80"
                 : "bg-[var(--bg-raised)]"
           }`}
-          title={`MTU ${index + 1}: ${action}`}
+          title={`${dispatch[index]?.interval ? formatMarketIntervalWindow(dispatch[index].interval) : `MTU ${index + 1}`}: ${action}`}
         />
       ))}
     </div>

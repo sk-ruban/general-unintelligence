@@ -37,10 +37,6 @@ export function CockpitClient() {
     dispatch,
     feasibilityChecks,
     health,
-    highPrice,
-    latestPrice,
-    loading,
-    lowPrice,
     backtestArtifact,
     modelLabArtifact,
     optimizerArtifact,
@@ -114,18 +110,9 @@ export function CockpitClient() {
                 ) : null}
                 {view === "dispatch" ? (
                   <DispatchPlan
-                    prices={prices}
-                    chartPrices={chartPrices}
-                    priceRange={priceRange}
-                    onPriceRangeChange={setPriceRange}
-                    curves={curves}
                     curveStats={curveStats}
-                    selectedMtu={selectedMtu}
                     dispatch={dispatch}
                     summary={summary}
-                    latestPrice={latestPrice}
-                    lowPrice={lowPrice}
-                    highPrice={highPrice}
                     signals={signals}
                     batterySignals={batterySignals}
                     decisionConfidence={decisionConfidence}
@@ -134,7 +121,6 @@ export function CockpitClient() {
                     health={health}
                     curveHealth={curveHealth}
                     portfolioSummary={portfolio.summary}
-                    loading={loading}
                     twin={twin}
                   />
                 ) : null}
@@ -160,6 +146,7 @@ export function CockpitClient() {
                     prices={prices}
                     selectedDay={marketCurveDay}
                     selectedMtu={selectedMtu}
+                    signals={signals}
                     onMtuChange={setSelectedMtu}
                     onPriceRangeChange={setPriceRange}
                   />
@@ -216,9 +203,9 @@ export function CockpitClient() {
             </ResizePanel>
             {showRightRail ? (
               <>
-                <PanelResizeHandle className="w-px bg-white/10 transition hover:bg-cyan-300/60 data-[resize-handle-active]:bg-cyan-300/70" />
+                <PanelResizeHandle className="w-px bg-white/10 hover:bg-cyan-300/60 data-[resize-handle-active]:bg-cyan-300/70" />
                 <ResizePanel
-                  className="min-h-0 overflow-hidden transition-[flex-basis] duration-200 ease-out"
+                  className="min-h-0 overflow-hidden"
                   defaultSize={24}
                   minSize={22}
                   maxSize={32}

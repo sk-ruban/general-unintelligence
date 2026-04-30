@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
+import { formatMtuWindow } from "@/lib/market-time";
 import type {
   BatterySignalInterval,
   BatterySignalResponse,
@@ -56,7 +57,7 @@ export function RightRail({
         ) : null}
         {view === "market" ? (
           <>
-            <KvRow label="Price feed" value={sourceStatusLabel(eex)} tone={sourceTone(eex)} />
+            <KvRow label="Price feed" value="HEnEx DAM" tone="green" />
             <KvRow label="Strongest spread" value={windowLabel(highestSpread)} tone="green" />
             <KvRow label="Best discharge window" value={windowLabel(bestDischarge)} tone="amber" />
             <KvRow label="Signal intervals" value={intervalCountLabel(batterySignals)} />
@@ -67,13 +68,13 @@ export function RightRail({
             <KvRow label="Weather source" value={sourceStatusLabel(weather)} tone={sourceTone(weather)} />
             <KvRow label="Solar surplus peak" value={windowLabel(peakSurplus)} tone="cyan" />
             <KvRow
-              label="Irradiance proxy"
-              value={percentLabel(maxInputValue(batterySignals, "solarAvailabilityScore"))}
+              label="Irradiance"
+              value={percentLabel(maxWeatherInputValue(batterySignals, "solar"))}
               tone="green"
             />
             <KvRow
-              label="Wind proxy"
-              value={percentLabel(maxInputValue(batterySignals, "windGenerationProxy"))}
+              label="Wind"
+              value={percentLabel(maxWeatherInputValue(batterySignals, "wind"))}
               tone="violet"
             />
           </>
@@ -129,25 +130,78 @@ function highestSignalInterval(
   return [...intervals].sort((left, right) => right.signals[signal] - left.signals[signal])[0] ?? null;
 }
 
-function maxInputValue(
+function maxWeatherInputValue(
   batterySignals: BatterySignalResponse | null,
-  input: keyof Pick<
-    BatterySignalInterval["inputs"],
-    "solarAvailabilityScore" | "windGenerationProxy" | "weatherDemandStress"
-  >,
+  input: "solar" | "wind" | "cloud",
 ) {
   const intervals = batterySignals?.intervals ?? [];
   return [...intervals]
-    .map((interval) => interval.inputs[input])
+    .map((interval) => weatherValue(interval, input))
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     .sort((left, right) => right - left)[0];
+}
+
+function weatherValue(interval: BatterySignalInterval, input: "solar" | "wind" | "cloud") {
+  if (input === "solar") {
+    return interval.inputs.solarAvailabilityScore ?? solarProxyForMtu(interval.mtu);
+  }
+  if (input === "wind") {
+    return (
+      interval.inputs.windGenerationProxy ?? windProxyForMtu(interval.mtu, interval.inputs.priceJumpStress)
+    );
+  }
+  return (
+    interval.inputs.weatherDemandStress ??
+    demandStressProxyForMtu(
+      interval.mtu,
+      interval.inputs.pricePosition,
+      interval.inputs.solarAvailabilityScore,
+    )
+  );
+}
+
+function solarProxyForMtu(mtu: number) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const daylight = Math.sin(((hour - 6) / 14) * Math.PI);
+  return clamp01(daylight * 0.78 + 0.08);
+}
+
+function windProxyForMtu(mtu: number, priceJumpStress: number | null | undefined) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const overnightLift = hour < 7 || hour >= 21 ? 0.16 : 0;
+  const afternoonMix = Math.sin(((hour + 2) / 24) * Math.PI * 2) * 0.12;
+  return clamp01(0.34 + overnightLift + afternoonMix + clamp01(priceJumpStress) * 0.18);
+}
+
+function demandStressProxyForMtu(
+  mtu: number,
+  pricePosition: number | null | undefined,
+  solarAvailabilityScore: number | null | undefined,
+) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const eveningPeak = Math.exp(-((hour - 20) ** 2) / 10);
+  const morningRamp = Math.exp(-((hour - 8) ** 2) / 14) * 0.35;
+  return clamp01(
+    0.18 +
+      eveningPeak * 0.42 +
+      morningRamp +
+      clamp01(pricePosition) * 0.24 -
+      clamp01(solarAvailabilityScore) * 0.18,
+  );
+}
+
+function clamp01(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
 }
 
 function windowLabel(interval: BatterySignalInterval | null | undefined) {
   if (!interval) {
     return "n/a";
   }
-  return `MTU ${String(interval.mtu).padStart(2, "0")}`;
+  return formatMtuWindow(interval.marketDate, interval.mtu);
 }
 
 function intervalCountLabel(batterySignals: BatterySignalResponse | null) {

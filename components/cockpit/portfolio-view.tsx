@@ -1,9 +1,10 @@
+import { MapPinned, RadioTower } from "lucide-react";
 import { GridFlowMap } from "@/components/grid-flow-map";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { formatEuro, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import type { GridFlow, GridNode, PortfolioSiteState } from "@/lib/portfolio";
 import type { DispatchPoint } from "@/lib/types";
-import { DetailMetric } from "./shared";
+import { DetailMetric, PageActionButton, PageIntro, Tag } from "./shared";
 
 export function PortfolioView({
   gridFlows,
@@ -24,8 +25,26 @@ export function PortfolioView({
   onSelectNode: (nodeId: string) => void;
   onSelectSite: (siteId: string) => void;
 }) {
+  const firstBatteryNode = gridNodes.find((node) => node.kind === "battery");
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Grid Flow"
+        title="Greek Asset Map"
+        description="Maps fleet assets onto the Greek system, showing the grid nodes, flow pressure, and site details operators should inspect before trusting a dispatch recommendation."
+        actions={
+          <>
+            <PageActionButton
+              onClick={() => (firstBatteryNode ? onSelectNode(firstBatteryNode.id) : undefined)}
+            >
+              <MapPinned className="size-3.5" />
+              Focus battery
+            </PageActionButton>
+            <Tag tone="outline">{sites.length} assets</Tag>
+            <Tag tone="blue">{gridNodes.length} nodes</Tag>
+          </>
+        }
+      />
       <div className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
         <Panel>
           <PanelHeader title="Greek Grid Flow Manager" />
@@ -39,7 +58,22 @@ export function PortfolioView({
         <GridDetailPanel flows={gridFlows} node={selectedNode} nodes={gridNodes} site={selectedGridSite} />
       </div>
       <Panel>
-        <PanelHeader title="Site Tape" kicker="Fleet state by asset" />
+        <PanelHeader
+          title="Site Tape"
+          kicker="Fleet state by asset"
+          right={
+            sites[0] ? (
+              <button
+                className="inline-flex h-6 items-center gap-1 rounded-sm border border-white/10 bg-black/20 px-2 text-[10px] text-zinc-400 uppercase hover:text-zinc-100"
+                type="button"
+                onClick={() => onSelectSite(sites[0]?.id ?? "")}
+              >
+                <RadioTower className="size-3" />
+                First asset
+              </button>
+            ) : null
+          }
+        />
         <div className="dense-scrollbar max-h-[340px] overflow-auto">
           <table className="w-full table-fixed text-left text-[11px]">
             <thead className="sticky top-0 bg-[var(--bg-panel)] text-zinc-500 uppercase">
@@ -56,7 +90,7 @@ export function PortfolioView({
               {sites.map((site) => (
                 <tr
                   key={site.id}
-                  className={`cursor-pointer border-white/5 border-t transition hover:bg-white/[0.04] ${
+                  className={`cursor-pointer border-white/5 border-t hover:bg-white/[0.04] ${
                     selectedGridSite?.id === site.id ? "bg-cyan-300/[0.06]" : ""
                   }`}
                   onClick={() => onSelectSite(site.id)}

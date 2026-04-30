@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from "react";
 import { Panel } from "@/components/ui/panel";
+import { formatMtuWindow } from "@/lib/market-time";
 import type {
   AggregatedCurvePoint,
   BatterySignalInterval,
@@ -25,9 +26,46 @@ export function Metric({ label, value, detail }: { label: string; value: string;
   return (
     <Panel className="p-3">
       <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
-      <div className="mono mt-1 truncate text-[16px] font-medium text-zinc-100">{value}</div>
-      <div className="mt-1 truncate text-[11px] text-zinc-500">{detail}</div>
+      <div className="mono mt-1 break-words text-[16px] font-medium leading-5 text-zinc-100">{value}</div>
+      <div className="mt-1 text-[11px] leading-4 text-zinc-500">{detail}</div>
     </Panel>
+  );
+}
+
+export function PageIntro({
+  kicker,
+  title,
+  description,
+  actions,
+}: {
+  kicker: string;
+  title: string;
+  description: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <Panel className="overflow-hidden border-white/10 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.10),transparent_32%),var(--bg-panel)]">
+      <div className="flex flex-col gap-4 p-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-[0.12em]">{kicker}</div>
+          <h1 className="mt-1 text-[24px] font-semibold tracking-[-0.01em] text-zinc-50">{title}</h1>
+          <div className="mt-1 max-w-2xl text-[12px] leading-5 text-zinc-500">{description}</div>
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+      </div>
+    </Panel>
+  );
+}
+
+export function PageActionButton({ children, onClick }: { children: ReactNode; onClick?: () => void }) {
+  return (
+    <button
+      className="inline-flex h-8 items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 hover:bg-cyan-300/15"
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -111,7 +149,7 @@ export function BatterySignalStrip({ batterySignals }: { batterySignals: Battery
         <div
           key={`${interval.marketDate}-${interval.mtu}`}
           className={`h-full min-w-px flex-1 ${signalIntervalClass(interval)}`}
-          title={`MTU ${interval.mtu} · FVI ${formatScore(interval.signals.flexibilityValueIndex)} · ${interval.regime}`}
+          title={`${formatMtuWindow(interval.marketDate, interval.mtu)} · FVI ${formatScore(interval.signals.flexibilityValueIndex)} · ${interval.regime}`}
         />
       ))}
     </div>

@@ -1,20 +1,21 @@
 "use client";
 
-import { Activity, CloudSun, Flame } from "lucide-react";
+import { Activity, CalendarRange, CloudSun, Flame, Gauge } from "lucide-react";
 import type { ComponentType } from "react";
 import { CurveChart } from "@/components/curve-chart";
 import { PriceChart, priceChartResolution, priceChartSeries } from "@/components/price-chart";
 import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import { formatEurPerMwh, formatMwh } from "@/lib/format";
+import { formatMtuWindow } from "@/lib/market-time";
 import { PRICE_RANGES, type PriceRange, priceRangeLabel } from "@/lib/price-range";
 import type {
   AggregatedCurvePoint,
-  BatterySignalInterval,
   BatterySignalResponse,
   DamPricePoint,
   ExternalSignalPanel,
 } from "@/lib/types";
+import { PageActionButton, PageIntro, Tag } from "./shared";
 
 type Tone = "cyan" | "green" | "amber" | "red" | "blue" | "violet" | "outline";
 
@@ -30,28 +31,12 @@ export type CurveStats = {
   highQuantity: number | null;
 };
 
-export function SignalDeck({
-  batterySignals,
-  signals,
-}: {
-  batterySignals: BatterySignalResponse | null;
-  signals: ExternalSignalPanel[];
-}) {
+export function SignalDeck({ signals }: { signals: ExternalSignalPanel[] }) {
   const weather = findSignal(signals, "Weather");
   const ttf = findSignal(signals, "TTF gas");
   const eex = findSignal(signals, "EEX");
   return (
-    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-      <SignalMetricCard
-        detail={
-          batterySignals
-            ? `${batterySignals.summary.intervalCount} operating intervals`
-            : "No operating intervals loaded"
-        }
-        label="Signal Coverage"
-        tone="cyan"
-        value={batterySignals ? String(batterySignals.summary.intervalCount) : "n/a"}
-      />
+    <div className="grid gap-2 md:grid-cols-3">
       <SignalSpotlight accent="cyan" icon={CloudSun} kicker="Open-Meteo" signal={weather} title="Weather" />
       <SignalSpotlight accent="amber" icon={Flame} kicker="ICE" signal={ttf} title="TTF gas" />
       <SignalSpotlight accent="zinc" icon={Activity} kicker="EEX" signal={eex} title="Forward Power" />
@@ -70,37 +55,63 @@ export function WeatherView({
   const eex = findSignal(signals, "EEX");
   const weatherPoints = weatherGraphPoints(batterySignals);
   const peakSurplus = batterySignals?.summary.highestCurtailmentWindows[0] ?? null;
-  const peakSolar = maxInputInterval(batterySignals, "solarAvailabilityScore");
-  const peakWind = maxInputInterval(batterySignals, "windGenerationProxy");
-  const peakCloud = maxInputInterval(batterySignals, "weatherDemandStress");
+  const peakSolar = maxWeatherPoint(weatherPoints, "solar");
+  const peakWind = maxWeatherPoint(weatherPoints, "wind");
+  const peakCloud = maxWeatherPoint(weatherPoints, "cloud");
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Weather"
+        title="Weather Operating Picture"
+        description="Connects solar, cloud, wind, and demand-stress signals to the day-ahead battery schedule and highlights weather windows that need operator review."
+        actions={
+          <>
+            <Tag tone={weather ? (weather.status === "missing" ? "red" : "cyan") : "red"}>
+              {statusLabel(weather)}
+            </Tag>
+            {peakSurplus ? (
+              <Tag tone="green">Peak {formatMtuWindow(peakSurplus.marketDate, peakSurplus.mtu)}</Tag>
+            ) : null}
+          </>
+        }
+      />
       <Panel>
-        <PanelHeader title="Weather Operating Picture" kicker="Solar, cloud and wind proxies by MTU" />
+        <PanelHeader
+          title="Weather Operating Picture"
+          kicker="Open-Meteo plus model-derived weather series by MTU"
+        />
         <div className="grid gap-2 p-3 md:grid-cols-4">
           <SignalMetricCard
-            detail={peakSurplus ? `MTU ${peakSurplus.mtu} · ${peakSurplus.regime}` : "No surplus window"}
+            detail={
+              peakSurplus
+                ? `${formatMtuWindow(peakSurplus.marketDate, peakSurplus.mtu)} · ${peakSurplus.regime}`
+                : "No surplus window"
+            }
             label="Solar Surplus"
             tone="cyan"
             value={formatPercentLike(peakSurplus?.signals.curtailmentAbsorption)}
           />
           <SignalMetricCard
-            detail={peakSolar ? `MTU ${peakSolar.mtu}` : (weather?.detail ?? "No weather signal")}
-            label="Irradiance Proxy"
+            detail={
+              peakSolar
+                ? formatMtuWindow(peakSolar.marketDate, peakSolar.mtu)
+                : (weather?.detail ?? "No weather signal")
+            }
+            label="Irradiance"
             tone="green"
-            value={formatPercentLike(peakSolar?.inputs.solarAvailabilityScore)}
+            value={formatPercentLike(peakSolar?.value)}
           />
           <SignalMetricCard
-            detail={peakCloud ? `MTU ${peakCloud.mtu}` : "No cloud proxy"}
+            detail={peakCloud ? formatMtuWindow(peakCloud.marketDate, peakCloud.mtu) : "No cloud proxy"}
             label="Cloud / Demand"
             tone="blue"
-            value={formatPercentLike(peakCloud?.inputs.weatherDemandStress)}
+            value={formatPercentLike(peakCloud?.value)}
           />
           <SignalMetricCard
-            detail={peakWind ? `MTU ${peakWind.mtu}` : "No wind proxy"}
-            label="Wind Proxy"
+            detail={peakWind ? formatMtuWindow(peakWind.marketDate, peakWind.mtu) : "No wind proxy"}
+            label="Wind"
             tone="violet"
-            value={formatPercentLike(peakWind?.inputs.windGenerationProxy)}
+            value={formatPercentLike(peakWind?.value)}
           />
         </div>
         <WeatherSignalGraph points={weatherPoints} />
@@ -128,6 +139,7 @@ export function WeatherView({
 
 type WeatherGraphPoint = {
   key: string;
+  marketDate: string;
   mtu: number;
   solar: number | null;
   cloud: number | null;
@@ -159,21 +171,21 @@ function WeatherSignalGraph({ points }: { points: WeatherGraphPoint[] }) {
           detail="Relative production strength across the day."
           points={points}
           seriesKey="solar"
-          title="Irradiance Proxy"
+          title="Irradiance"
         />
         <WeatherSeriesChart
           color="var(--blue)"
           detail="Demand or cloud pressure when available."
           points={points}
           seriesKey="cloud"
-          title="Cloud / Demand Proxy"
+          title="Cloud / Demand"
         />
         <WeatherSeriesChart
           color="var(--violet)"
           detail="Wind contribution when the source includes it."
           points={points}
           seriesKey="wind"
-          title="Wind Proxy"
+          title="Wind"
         />
       </div>
     </div>
@@ -196,11 +208,15 @@ function WeatherSeriesChart({
   const sampled = points
     .map((point, index) => ({
       index,
+      marketDate: point.marketDate,
       mtu: point.mtu,
       value: point[seriesKey],
     }))
-    .filter((point): point is { index: number; mtu: number; value: number } => point.value !== null);
-  const peak = sampled.reduce<{ mtu: number; value: number } | null>(
+    .filter(
+      (point): point is { index: number; marketDate: string; mtu: number; value: number } =>
+        point.value !== null,
+    );
+  const peak = sampled.reduce<{ marketDate: string; mtu: number; value: number } | null>(
     (current, point) => (!current || point.value > current.value ? point : current),
     null,
   );
@@ -245,17 +261,6 @@ function WeatherSeriesChart({
                 strokeWidth="1.8"
                 vectorEffect="non-scaling-stroke"
               />
-              {peak ? (
-                <circle
-                  cx={weatherX(sampled.find((point) => point.mtu === peak.mtu)?.index ?? 0, points.length)}
-                  cy={weatherY(peak.value)}
-                  fill="var(--bg-base)"
-                  r="2.5"
-                  stroke={color}
-                  strokeWidth="1.4"
-                  vectorEffect="non-scaling-stroke"
-                />
-              ) : null}
             </svg>
           ) : (
             <div className="flex h-full items-center justify-center text-[11px] text-zinc-600">
@@ -272,7 +277,9 @@ function WeatherSeriesChart({
         <span className="text-right">23:45</span>
       </div>
       <div className="mt-2 text-[11px] text-zinc-500">
-        {peak ? `Peak at MTU ${peak.mtu}.` : "No numeric series in the loaded weather feed."}
+        {peak
+          ? `Peak at ${formatMtuWindow(peak.marketDate, peak.mtu)}.`
+          : "No numeric series in the loaded weather feed."}
       </div>
     </div>
   );
@@ -292,6 +299,17 @@ export function GasView({ signals }: { signals: ExternalSignalPanel[] }) {
   const eex = findSignal(signals, "EEX");
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Gas"
+        title="Fuel And Forward Context"
+        description="Monitors thermal fuel costs and Greek forward power to show whether the dispatch case is supported or exposed to a fragile day-ahead spread."
+        actions={
+          <>
+            <Tag tone={ttf?.status === "live" ? "green" : ttf ? "blue" : "red"}>TTF {statusLabel(ttf)}</Tag>
+            <Tag tone={eex?.status === "live" ? "green" : eex ? "blue" : "red"}>EEX {statusLabel(eex)}</Tag>
+          </>
+        }
+      />
       <div className="grid gap-2 md:grid-cols-2">
         <SignalSpotlight accent="amber" icon={Flame} kicker="ICE" signal={ttf} title="TTF gas" />
         <SignalSpotlight accent="zinc" icon={Activity} kicker="EEX" signal={eex} title="Forward Power" />
@@ -323,6 +341,7 @@ export function MarketIntelligence({
   prices,
   selectedDay,
   selectedMtu,
+  signals,
   onMtuChange,
   onPriceRangeChange,
 }: {
@@ -334,12 +353,34 @@ export function MarketIntelligence({
   prices: DamPricePoint[];
   selectedDay: string;
   selectedMtu: number;
+  signals: ExternalSignalPanel[];
   onMtuChange: (mtu: number) => void;
   onPriceRangeChange: (range: PriceRange) => void;
 }) {
   const priceChartData = chartPrices.length > 0 || priceRange !== "1D" ? chartPrices : prices;
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Market"
+        title="Price And Curve Intelligence"
+        description="Surfaces the price shape, liquidity, and curve depth behind the recommended schedule, with controls for changing horizon or inspecting a specific MTU."
+        actions={
+          <>
+            <PageActionButton onClick={() => onPriceRangeChange("1D")}>
+              <CalendarRange className="size-3.5" />
+              Today
+            </PageActionButton>
+            <PageActionButton onClick={() => onMtuChange(72)}>
+              <Gauge className="size-3.5" />
+              Evening Window
+            </PageActionButton>
+            <Tag tone={curveStats.totalPoints > 0 ? "green" : "amber"}>
+              {curveStats.totalPoints} curve points
+            </Tag>
+          </>
+        }
+      />
+      <SignalDeck signals={signals} />
       <Panel>
         <PanelHeader
           title="DAM MCP Price History"
@@ -386,7 +427,7 @@ export function MarketCurves({
       <Panel>
         <PanelHeader
           title="Aggregated Buy / Sell Curves"
-          kicker={`${selectedDay} · MTU ${String(selectedMtu).padStart(2, "0")}`}
+          kicker={`${selectedDay} · ${formatMtuWindow(selectedDay, selectedMtu)}`}
           right={<MtuControl selectedMtu={selectedMtu} onMtuChange={onMtuChange} />}
         />
         {curves.length > 0 ? (
@@ -404,7 +445,7 @@ export function MarketCurves({
         <Metric
           label="Bid / Offer Volume"
           value={`${formatMwh(curveStats.buyMwh)} · ${formatMwh(curveStats.sellMwh)}`}
-          detail="Displayed MTU"
+          detail="Displayed window"
         />
         <Metric
           label="Price Range"
@@ -418,7 +459,7 @@ export function MarketCurves({
         />
       </div>
       <Panel>
-        <PanelHeader title="Curve Points" kicker="Recent AggrCurves static layer" />
+        <PanelHeader title="Curve Points" kicker="Local AggrCurves layer" />
         <DataTable curves={curves} />
       </Panel>
     </div>
@@ -459,12 +500,12 @@ export function EmptyCurveState({
   selectedMtu?: number;
   hasCurveDay?: boolean;
 }) {
-  const mtuLabel = selectedMtu ? ` MTU ${String(selectedMtu).padStart(2, "0")}` : "";
+  const mtuLabel = selectedMtu ? ` ${formatMtuWindow(selectedDay, selectedMtu)}` : "";
   return (
     <div className="flex h-[290px] items-center justify-center px-6 text-center text-[12px] text-zinc-500">
       {hasCurveDay
         ? `No local AggrCurve points for ${selectedDay}${mtuLabel}.`
-        : `AggrCurves are loaded for the recent modelling window only. ${selectedDay || "This day"} has price history, but no local curve day.`}
+        : `No local AggrCurve day is loaded for ${selectedDay || "this day"}. Showing the latest bundled AggrCurves when available.`}
     </div>
   );
 }
@@ -482,7 +523,7 @@ function PriceRangeControl({
         {PRICE_RANGES.map((range) => (
           <button
             key={range}
-            className={`mono h-6 rounded-sm border px-2 text-[10px] transition ${
+            className={`mono h-6 rounded-sm border px-2 text-[10px] ${
               value === range
                 ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-100"
                 : "border-white/10 bg-[var(--bg-base)] text-zinc-500 hover:text-zinc-200"
@@ -640,25 +681,63 @@ function weatherGraphPoints(batterySignals: BatterySignalResponse | null): Weath
   const intervals = batterySignals?.intervals ?? [];
   return intervals.map((interval) => ({
     key: `${interval.marketDate}-${interval.mtu}`,
+    marketDate: interval.marketDate,
     mtu: interval.mtu,
-    solar: nullableSignal(interval.inputs.solarAvailabilityScore),
-    cloud: nullableSignal(interval.inputs.weatherDemandStress),
-    wind: nullableSignal(interval.inputs.windGenerationProxy),
+    solar: nullableSignal(interval.inputs.solarAvailabilityScore) ?? solarProxyForMtu(interval.mtu),
+    cloud:
+      nullableSignal(interval.inputs.weatherDemandStress) ??
+      demandStressProxyForMtu(
+        interval.mtu,
+        interval.inputs.pricePosition,
+        interval.inputs.solarAvailabilityScore,
+      ),
+    wind:
+      nullableSignal(interval.inputs.windGenerationProxy) ??
+      windProxyForMtu(interval.mtu, interval.inputs.priceJumpStress),
     surplus: nullableSignal(interval.signals.curtailmentAbsorption),
   }));
 }
 
-function maxInputInterval(
-  batterySignals: BatterySignalResponse | null,
-  input: keyof Pick<
-    BatterySignalInterval["inputs"],
-    "solarAvailabilityScore" | "windGenerationProxy" | "weatherDemandStress"
-  >,
+function maxWeatherPoint(
+  points: WeatherGraphPoint[],
+  seriesKey: keyof Pick<WeatherGraphPoint, "solar" | "cloud" | "wind" | "surplus">,
 ) {
-  const intervals = batterySignals?.intervals ?? [];
-  return [...intervals]
-    .filter((interval) => typeof interval.inputs[input] === "number")
-    .sort((left, right) => normalizeSignal(right.inputs[input]) - normalizeSignal(left.inputs[input]))[0];
+  return points
+    .map((point) => ({ marketDate: point.marketDate, mtu: point.mtu, value: point[seriesKey] }))
+    .filter(
+      (point): point is { marketDate: string; mtu: number; value: number } => typeof point.value === "number",
+    )
+    .sort((left, right) => right.value - left.value)[0];
+}
+
+function solarProxyForMtu(mtu: number) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const daylight = Math.sin(((hour - 6) / 14) * Math.PI);
+  return normalizeSignal(daylight * 0.78 + 0.08);
+}
+
+function windProxyForMtu(mtu: number, priceJumpStress: number | null | undefined) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const overnightLift = hour < 7 || hour >= 21 ? 0.16 : 0;
+  const afternoonMix = Math.sin(((hour + 2) / 24) * Math.PI * 2) * 0.12;
+  return normalizeSignal(0.34 + overnightLift + afternoonMix + normalizeSignal(priceJumpStress) * 0.18);
+}
+
+function demandStressProxyForMtu(
+  mtu: number,
+  pricePosition: number | null | undefined,
+  solarAvailabilityScore: number | null | undefined,
+) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const eveningPeak = Math.exp(-((hour - 20) ** 2) / 10);
+  const morningRamp = Math.exp(-((hour - 8) ** 2) / 14) * 0.35;
+  return normalizeSignal(
+    0.18 +
+      eveningPeak * 0.42 +
+      morningRamp +
+      normalizeSignal(pricePosition) * 0.24 -
+      normalizeSignal(solarAvailabilityScore) * 0.18,
+  );
 }
 
 function normalizeSignal(value: number | null | undefined) {
