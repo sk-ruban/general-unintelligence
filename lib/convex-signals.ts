@@ -149,7 +149,9 @@ function ttfPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
   return {
     label: "TTF gas",
     value: formatEurPerMwh(value),
-    detail: result.value?.selectedContract?.marketStrip ?? "Thermal fuel-cost proxy",
+    detail: result.value?.selectedContract?.marketStrip
+      ? `ICE TTF selected futures strip: ${formatStripLabel(result.value.selectedContract.marketStrip)}`
+      : "Thermal fuel-cost proxy",
     status: "cached",
   };
 }
@@ -169,9 +171,34 @@ function eexPanel(result: PromiseSettledResult<any>): ExternalSignalPanel {
   return {
     label: "EEX GR base",
     value: formatEurPerMwh(price),
-    detail: result.value?.fetch?.selectedGreekPowerMaturity ?? "Greek forward context",
+    detail: result.value?.fetch?.selectedGreekPowerMaturity
+      ? `EEX Greek power selected maturity: ${formatMaturityLabel(result.value.fetch.selectedGreekPowerMaturity)}`
+      : "Greek forward context",
     status: "cached",
   };
+}
+
+function formatStripLabel(value: unknown) {
+  if (typeof value !== "string") {
+    return "selected strip";
+  }
+  const match = value.match(/^([A-Za-z]{3})(\d{2})$/);
+  if (!match) {
+    return value;
+  }
+  return `${match[1]} 20${match[2]}`;
+}
+
+function formatMaturityLabel(value: unknown) {
+  if (typeof value !== "string") {
+    return "selected maturity";
+  }
+  const match = value.match(/^(\d{4})(\d{2})$/);
+  if (!match) {
+    return value;
+  }
+  const parsed = DateTime.fromObject({ year: Number(match[1]), month: Number(match[2]), day: 1 });
+  return parsed.isValid ? parsed.toFormat("LLL yyyy") : value;
 }
 
 function formatSignalTime(value: unknown) {

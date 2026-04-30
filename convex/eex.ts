@@ -142,7 +142,7 @@ function latestMaturity(rows: FilterRow[], shortCode: string, requestedMaturity?
   if (requestedMaturity && candidates.includes(requestedMaturity)) {
     return requestedMaturity;
   }
-  return candidates[0] ?? requestedMaturity;
+  return candidates.at(-1) ?? requestedMaturity;
 }
 
 function tickerUrl(params: {

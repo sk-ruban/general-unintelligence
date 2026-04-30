@@ -1,3 +1,5 @@
+import { buildBatterySignals, type SignalPricePoint } from "@/convex/signalScoring";
+
 const ALLOWED_PREFIXES = [
   "/market/dam/",
   "/weather/open-meteo/",
@@ -48,6 +50,12 @@ async function proxyConvexHttp(request: Request, context: RouteContext) {
       headers: proxyHeaders(request),
       method: request.method,
     });
+    if (response.status === 404 && isBatterySignalPath(path) && request.method === "GET") {
+      const fallback = await batterySignalFallbackResponse(targetBase, incomingUrl);
+      if (fallback) {
+        return fallback;
+      }
+    }
     return new Response(response.body, {
       headers: responseHeaders(response),
       status: response.status,
@@ -56,6 +64,88 @@ async function proxyConvexHttp(request: Request, context: RouteContext) {
   } catch {
     return jsonError("Convex HTTP server is unavailable.", 503);
   }
+}
+
+async function batterySignalFallbackResponse(targetBase: string, incomingUrl: URL) {
+  const searchParams = incomingUrl.searchParams;
+  const date = searchParams.get("date");
+  const from = searchParams.get("from") ?? date;
+  const to = searchParams.get("to") ?? date ?? from;
+  if (!from || !to) {
+    return null;
+  }
+
+  const priceUrl = new URL("/market/dam/prices", `${targetBase}/`);
+  priceUrl.searchParams.set("from", from);
+  priceUrl.searchParams.set("to", to);
+  priceUrl.searchParams.set("limit", searchParams.get("limit") ?? "20000");
+
+  const priceResponse = await fetch(priceUrl, { cache: "no-store" });
+  if (!priceResponse.ok) {
+    return null;
+  }
+
+  const pricePayload = (await priceResponse.json()) as {
+    rows?: unknown;
+    range?: { from?: unknown; to?: unknown };
+  };
+  const priceSeries = Array.isArray(pricePayload.rows) ? pricePayload.rows.filter(isSignalPricePoint) : [];
+  if (priceSeries.length === 0) {
+    return null;
+  }
+
+  return Response.json(
+    buildBatterySignals({
+      context: {
+        battery: {
+          initialSocMwh: numberSearchParam(searchParams, "initialSocMwh"),
+          maxSocMwh: numberSearchParam(searchParams, "maxSocMwh"),
+          minSocMwh: numberSearchParam(searchParams, "minSocMwh"),
+        },
+      },
+      dataFreshness: {
+        dam: {
+          source: "/market/dam/prices",
+          status: "observed",
+        },
+        signalRoute: {
+          route: incomingUrl.pathname,
+          status: "local-fallback",
+        },
+      },
+      priceSeries,
+      range: {
+        from: typeof pricePayload.range?.from === "string" ? pricePayload.range.from : from,
+        to: typeof pricePayload.range?.to === "string" ? pricePayload.range.to : to,
+      },
+      source: "battery-signal-engine-local-fallback",
+      timezone: "Europe/Athens",
+    }),
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function isBatterySignalPath(path: string) {
+  return path === "/signals/intervals" || path === "/market/dam/battery-signals";
+}
+
+function isSignalPricePoint(value: unknown): value is SignalPricePoint {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const point = value as Partial<SignalPricePoint>;
+  return (
+    typeof point.marketDate === "string" &&
+    typeof point.timestamp === "string" &&
+    typeof point.mtu === "number" &&
+    typeof point.mcpEurPerMwh === "number" &&
+    Number.isFinite(point.mcpEurPerMwh)
+  );
+}
+
+function numberSearchParam(searchParams: URLSearchParams, key: string) {
+  const value = Number(searchParams.get(key));
+  return Number.isFinite(value) ? value : undefined;
 }
 
 function getTargetBaseUrl() {
