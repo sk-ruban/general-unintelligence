@@ -1,0 +1,715 @@
+{
+  "by_year": {
+    "2021": {
+      "mae_eur_per_mwh": 23.787,
+      "rows": 5568
+    },
+    "2022": {
+      "mae_eur_per_mwh": 50.396,
+      "rows": 8759
+    },
+    "2023": {
+      "mae_eur_per_mwh": 23.512,
+      "rows": 8759
+    },
+    "2024": {
+      "mae_eur_per_mwh": 21.796,
+      "rows": 8783
+    },
+    "2025": {
+      "mae_eur_per_mwh": 20.245,
+      "rows": 14379
+    },
+    "2026": {
+      "mae_eur_per_mwh": 24.085,
+      "rows": 10268
+    }
+  },
+  "feature_importance": {
+    "dow": 0.0881,
+    "dow_cos": 0.0196,
+    "dow_sin": 0.0334,
+    "duration_minutes": 0.0004,
+    "hour_cos": 0.0464,
+    "hour_sin": 0.0284,
+    "is_weekend": 0.0,
+    "lag_14d": 0.1096,
+    "lag_1d": 0.1368,
+    "lag_7d": 0.1129,
+    "month": 0.0845,
+    "mtu": 0.053,
+    "roll_7d_mean": 0.1684,
+    "roll_7d_std": 0.1186
+  },
+  "feature_set": "DAM lags + calendar + realized volatility; ENTSO-E adapter is token-ready for load/RES supplement",
+  "fold_count": 60,
+  "folds": [
+    {
+      "directional_accuracy": 0.655,
+      "mae_eur_per_mwh": 8.074,
+      "p10_p90_coverage": 0.644,
+      "rmse_eur_per_mwh": 10.481,
+      "rows": 720,
+      "test_end": "2021-06-12",
+      "test_start": "2021-05-14",
+      "train_end": "2021-05-13",
+      "train_start": "2020-11-15"
+    },
+    {
+      "directional_accuracy": 0.584,
+      "mae_eur_per_mwh": 16.82,
+      "p10_p90_coverage": 0.436,
+      "rmse_eur_per_mwh": 22.336,
+      "rows": 720,
+      "test_end": "2021-07-12",
+      "test_start": "2021-06-13",
+      "train_end": "2021-06-12",
+      "train_start": "2020-12-15"
+    },
+    {
+      "directional_accuracy": 0.618,
+      "mae_eur_per_mwh": 24.808,
+      "p10_p90_coverage": 0.408,
+      "rmse_eur_per_mwh": 34.221,
+      "rows": 720,
+      "test_end": "2021-08-11",
+      "test_start": "2021-07-13",
+      "train_end": "2021-07-12",
+      "train_start": "2021-01-14"
+    },
+    {
+      "directional_accuracy": 0.643,
+      "mae_eur_per_mwh": 13.172,
+      "p10_p90_coverage": 0.672,
+      "rmse_eur_per_mwh": 18.102,
+      "rows": 720,
+      "test_end": "2021-09-10",
+      "test_start": "2021-08-12",
+      "train_end": "2021-08-11",
+      "train_start": "2021-02-13"
+    },
+    {
+      "directional_accuracy": 0.588,
+      "mae_eur_per_mwh": 27.98,
+      "p10_p90_coverage": 0.424,
+      "rmse_eur_per_mwh": 38.047,
+      "rows": 720,
+      "test_end": "2021-10-10",
+      "test_start": "2021-09-11",
+      "train_end": "2021-09-10",
+      "train_start": "2021-03-15"
+    },
+    {
+      "directional_accuracy": 0.7,
+      "mae_eur_per_mwh": 26.627,
+      "p10_p90_coverage": 0.665,
+      "rmse_eur_per_mwh": 35.249,
+      "rows": 720,
+      "test_end": "2021-11-09",
+      "test_start": "2021-10-11",
+      "train_end": "2021-10-10",
+      "train_start": "2021-04-14"
+    },
+    {
+      "directional_accuracy": 0.748,
+      "mae_eur_per_mwh": 23.431,
+      "p10_p90_coverage": 0.628,
+      "rmse_eur_per_mwh": 30.629,
+      "rows": 720,
+      "test_end": "2021-12-09",
+      "test_start": "2021-11-10",
+      "train_end": "2021-11-09",
+      "train_start": "2021-05-14"
+    },
+    {
+      "directional_accuracy": 0.693,
+      "mae_eur_per_mwh": 56.738,
+      "p10_p90_coverage": 0.401,
+      "rmse_eur_per_mwh": 72.191,
+      "rows": 720,
+      "test_end": "2022-01-08",
+      "test_start": "2021-12-10",
+      "train_end": "2021-12-09",
+      "train_start": "2021-06-13"
+    },
+    {
+      "directional_accuracy": 0.743,
+      "mae_eur_per_mwh": 20.115,
+      "p10_p90_coverage": 0.776,
+      "rmse_eur_per_mwh": 26.172,
+      "rows": 720,
+      "test_end": "2022-02-07",
+      "test_start": "2022-01-09",
+      "train_end": "2022-01-08",
+      "train_start": "2021-07-13"
+    },
+    {
+      "directional_accuracy": 0.751,
+      "mae_eur_per_mwh": 37.594,
+      "p10_p90_coverage": 0.611,
+      "rmse_eur_per_mwh": 58.862,
+      "rows": 720,
+      "test_end": "2022-03-09",
+      "test_start": "2022-02-08",
+      "train_end": "2022-02-07",
+      "train_start": "2021-08-12"
+    },
+    {
+      "directional_accuracy": 0.71,
+      "mae_eur_per_mwh": 32.549,
+      "p10_p90_coverage": 0.822,
+      "rmse_eur_per_mwh": 45.01,
+      "rows": 719,
+      "test_end": "2022-04-08",
+      "test_start": "2022-03-10",
+      "train_end": "2022-03-09",
+      "train_start": "2021-09-11"
+    },
+    {
+      "directional_accuracy": 0.688,
+      "mae_eur_per_mwh": 30.161,
+      "p10_p90_coverage": 0.744,
+      "rmse_eur_per_mwh": 43.635,
+      "rows": 720,
+      "test_end": "2022-05-08",
+      "test_start": "2022-04-09",
+      "train_end": "2022-04-08",
+      "train_start": "2021-10-11"
+    },
+    {
+      "directional_accuracy": 0.69,
+      "mae_eur_per_mwh": 19.867,
+      "p10_p90_coverage": 0.762,
+      "rmse_eur_per_mwh": 27.035,
+      "rows": 720,
+      "test_end": "2022-06-07",
+      "test_start": "2022-05-09",
+      "train_end": "2022-05-08",
+      "train_start": "2021-11-10"
+    },
+    {
+      "directional_accuracy": 0.641,
+      "mae_eur_per_mwh": 40.166,
+      "p10_p90_coverage": 0.579,
+      "rmse_eur_per_mwh": 53.531,
+      "rows": 720,
+      "test_end": "2022-07-07",
+      "test_start": "2022-06-08",
+      "train_end": "2022-06-07",
+      "train_start": "2021-12-10"
+    },
+    {
+      "directional_accuracy": 0.65,
+      "mae_eur_per_mwh": 78.38,
+      "p10_p90_coverage": 0.368,
+      "rmse_eur_per_mwh": 97.909,
+      "rows": 720,
+      "test_end": "2022-08-06",
+      "test_start": "2022-07-08",
+      "train_end": "2022-07-07",
+      "train_start": "2022-01-09"
+    },
+    {
+      "directional_accuracy": 0.647,
+      "mae_eur_per_mwh": 89.527,
+      "p10_p90_coverage": 0.472,
+      "rmse_eur_per_mwh": 120.259,
+      "rows": 720,
+      "test_end": "2022-09-05",
+      "test_start": "2022-08-07",
+      "train_end": "2022-08-06",
+      "train_start": "2022-02-08"
+    },
+    {
+      "directional_accuracy": 0.745,
+      "mae_eur_per_mwh": 52.143,
+      "p10_p90_coverage": 0.772,
+      "rmse_eur_per_mwh": 72.465,
+      "rows": 720,
+      "test_end": "2022-10-05",
+      "test_start": "2022-09-06",
+      "train_end": "2022-09-05",
+      "train_start": "2022-03-10"
+    },
+    {
+      "directional_accuracy": 0.725,
+      "mae_eur_per_mwh": 85.052,
+      "p10_p90_coverage": 0.371,
+      "rmse_eur_per_mwh": 99.428,
+      "rows": 720,
+      "test_end": "2022-11-04",
+      "test_start": "2022-10-06",
+      "train_end": "2022-10-05",
+      "train_start": "2022-04-09"
+    },
+    {
+      "directional_accuracy": 0.691,
+      "mae_eur_per_mwh": 57.646,
+      "p10_p90_coverage": 0.771,
+      "rmse_eur_per_mwh": 71.998,
+      "rows": 720,
+      "test_end": "2022-12-04",
+      "test_start": "2022-11-05",
+      "train_end": "2022-11-04",
+      "train_start": "2022-05-09"
+    },
+    {
+      "directional_accuracy": 0.723,
+      "mae_eur_per_mwh": 59.626,
+      "p10_p90_coverage": 0.71,
+      "rmse_eur_per_mwh": 77.419,
+      "rows": 720,
+      "test_end": "2023-01-03",
+      "test_start": "2022-12-05",
+      "train_end": "2022-12-04",
+      "train_start": "2022-06-08"
+    },
+    {
+      "directional_accuracy": 0.679,
+      "mae_eur_per_mwh": 56.098,
+      "p10_p90_coverage": 0.632,
+      "rmse_eur_per_mwh": 75.328,
+      "rows": 720,
+      "test_end": "2023-02-02",
+      "test_start": "2023-01-04",
+      "train_end": "2023-01-03",
+      "train_start": "2022-07-08"
+    },
+    {
+      "directional_accuracy": 0.687,
+      "mae_eur_per_mwh": 23.118,
+      "p10_p90_coverage": 0.783,
+      "rmse_eur_per_mwh": 32.307,
+      "rows": 720,
+      "test_end": "2023-03-04",
+      "test_start": "2023-02-03",
+      "train_end": "2023-02-02",
+      "train_start": "2022-08-07"
+    },
+    {
+      "directional_accuracy": 0.687,
+      "mae_eur_per_mwh": 28.898,
+      "p10_p90_coverage": 0.544,
+      "rmse_eur_per_mwh": 39.584,
+      "rows": 719,
+      "test_end": "2023-04-03",
+      "test_start": "2023-03-05",
+      "train_end": "2023-03-04",
+      "train_start": "2022-09-06"
+    },
+    {
+      "directional_accuracy": 0.709,
+      "mae_eur_per_mwh": 17.151,
+      "p10_p90_coverage": 0.79,
+      "rmse_eur_per_mwh": 25.455,
+      "rows": 720,
+      "test_end": "2023-05-03",
+      "test_start": "2023-04-04",
+      "train_end": "2023-04-03",
+      "train_start": "2022-10-06"
+    },
+    {
+      "directional_accuracy": 0.722,
+      "mae_eur_per_mwh": 22.729,
+      "p10_p90_coverage": 0.628,
+      "rmse_eur_per_mwh": 30.615,
+      "rows": 720,
+      "test_end": "2023-06-02",
+      "test_start": "2023-05-04",
+      "train_end": "2023-05-03",
+      "train_start": "2022-11-05"
+    },
+    {
+      "directional_accuracy": 0.704,
+      "mae_eur_per_mwh": 18.981,
+      "p10_p90_coverage": 0.799,
+      "rmse_eur_per_mwh": 26.292,
+      "rows": 720,
+      "test_end": "2023-07-02",
+      "test_start": "2023-06-03",
+      "train_end": "2023-06-02",
+      "train_start": "2022-12-05"
+    },
+    {
+      "directional_accuracy": 0.743,
+      "mae_eur_per_mwh": 14.293,
+      "p10_p90_coverage": 0.749,
+      "rmse_eur_per_mwh": 20.212,
+      "rows": 720,
+      "test_end": "2023-08-01",
+      "test_start": "2023-07-03",
+      "train_end": "2023-07-02",
+      "train_start": "2023-01-04"
+    },
+    {
+      "directional_accuracy": 0.748,
+      "mae_eur_per_mwh": 22.457,
+      "p10_p90_coverage": 0.607,
+      "rmse_eur_per_mwh": 38.234,
+      "rows": 720,
+      "test_end": "2023-08-31",
+      "test_start": "2023-08-02",
+      "train_end": "2023-08-01",
+      "train_start": "2023-02-03"
+    },
+    {
+      "directional_accuracy": 0.805,
+      "mae_eur_per_mwh": 13.949,
+      "p10_p90_coverage": 0.75,
+      "rmse_eur_per_mwh": 21.577,
+      "rows": 720,
+      "test_end": "2023-09-30",
+      "test_start": "2023-09-01",
+      "train_end": "2023-08-31",
+      "train_start": "2023-03-05"
+    },
+    {
+      "directional_accuracy": 0.772,
+      "mae_eur_per_mwh": 21.579,
+      "p10_p90_coverage": 0.547,
+      "rmse_eur_per_mwh": 30.898,
+      "rows": 720,
+      "test_end": "2023-10-30",
+      "test_start": "2023-10-01",
+      "train_end": "2023-09-30",
+      "train_start": "2023-04-04"
+    },
+    {
+      "directional_accuracy": 0.641,
+      "mae_eur_per_mwh": 24.452,
+      "p10_p90_coverage": 0.592,
+      "rmse_eur_per_mwh": 33.333,
+      "rows": 720,
+      "test_end": "2023-11-29",
+      "test_start": "2023-10-31",
+      "train_end": "2023-10-30",
+      "train_start": "2023-05-04"
+    },
+    {
+      "directional_accuracy": 0.75,
+      "mae_eur_per_mwh": 17.566,
+      "p10_p90_coverage": 0.826,
+      "rmse_eur_per_mwh": 24.575,
+      "rows": 720,
+      "test_end": "2023-12-29",
+      "test_start": "2023-11-30",
+      "train_end": "2023-11-29",
+      "train_start": "2023-06-03"
+    },
+    {
+      "directional_accuracy": 0.75,
+      "mae_eur_per_mwh": 14.114,
+      "p10_p90_coverage": 0.711,
+      "rmse_eur_per_mwh": 19.694,
+      "rows": 720,
+      "test_end": "2024-01-28",
+      "test_start": "2023-12-30",
+      "train_end": "2023-12-29",
+      "train_start": "2023-07-03"
+    },
+    {
+      "directional_accuracy": 0.704,
+      "mae_eur_per_mwh": 16.847,
+      "p10_p90_coverage": 0.69,
+      "rmse_eur_per_mwh": 21.959,
+      "rows": 720,
+      "test_end": "2024-02-27",
+      "test_start": "2024-01-29",
+      "train_end": "2024-01-28",
+      "train_start": "2023-08-02"
+    },
+    {
+      "directional_accuracy": 0.722,
+      "mae_eur_per_mwh": 12.203,
+      "p10_p90_coverage": 0.762,
+      "rmse_eur_per_mwh": 19.113,
+      "rows": 720,
+      "test_end": "2024-03-28",
+      "test_start": "2024-02-28",
+      "train_end": "2024-02-27",
+      "train_start": "2023-09-01"
+    },
+    {
+      "directional_accuracy": 0.675,
+      "mae_eur_per_mwh": 18.377,
+      "p10_p90_coverage": 0.527,
+      "rmse_eur_per_mwh": 24.617,
+      "rows": 719,
+      "test_end": "2024-04-27",
+      "test_start": "2024-03-29",
+      "train_end": "2024-03-28",
+      "train_start": "2023-10-01"
+    },
+    {
+      "directional_accuracy": 0.734,
+      "mae_eur_per_mwh": 16.084,
+      "p10_p90_coverage": 0.686,
+      "rmse_eur_per_mwh": 22.279,
+      "rows": 720,
+      "test_end": "2024-05-27",
+      "test_start": "2024-04-28",
+      "train_end": "2024-04-27",
+      "train_start": "2023-10-31"
+    },
+    {
+      "directional_accuracy": 0.754,
+      "mae_eur_per_mwh": 18.353,
+      "p10_p90_coverage": 0.637,
+      "rmse_eur_per_mwh": 28.791,
+      "rows": 720,
+      "test_end": "2024-06-26",
+      "test_start": "2024-05-28",
+      "train_end": "2024-05-27",
+      "train_start": "2023-11-30"
+    },
+    {
+      "directional_accuracy": 0.794,
+      "mae_eur_per_mwh": 40.972,
+      "p10_p90_coverage": 0.633,
+      "rmse_eur_per_mwh": 90.906,
+      "rows": 720,
+      "test_end": "2024-07-26",
+      "test_start": "2024-06-27",
+      "train_end": "2024-06-26",
+      "train_start": "2023-12-30"
+    },
+    {
+      "directional_accuracy": 0.791,
+      "mae_eur_per_mwh": 21.409,
+      "p10_p90_coverage": 0.757,
+      "rmse_eur_per_mwh": 33.337,
+      "rows": 720,
+      "test_end": "2024-08-25",
+      "test_start": "2024-07-27",
+      "train_end": "2024-07-26",
+      "train_start": "2024-01-29"
+    },
+    {
+      "directional_accuracy": 0.803,
+      "mae_eur_per_mwh": 29.201,
+      "p10_p90_coverage": 0.611,
+      "rmse_eur_per_mwh": 62.853,
+      "rows": 720,
+      "test_end": "2024-09-24",
+      "test_start": "2024-08-26",
+      "train_end": "2024-08-25",
+      "train_start": "2024-02-28"
+    },
+    {
+      "directional_accuracy": 0.762,
+      "mae_eur_per_mwh": 21.475,
+      "p10_p90_coverage": 0.639,
+      "rmse_eur_per_mwh": 29.253,
+      "rows": 720,
+      "test_end": "2024-10-24",
+      "test_start": "2024-09-25",
+      "train_end": "2024-09-24",
+      "train_start": "2024-03-29"
+    },
+    {
+      "directional_accuracy": 0.769,
+      "mae_eur_per_mwh": 31.593,
+      "p10_p90_coverage": 0.668,
+      "rmse_eur_per_mwh": 60.572,
+      "rows": 720,
+      "test_end": "2024-11-23",
+      "test_start": "2024-10-25",
+      "train_end": "2024-10-24",
+      "train_start": "2024-04-28"
+    },
+    {
+      "directional_accuracy": 0.796,
+      "mae_eur_per_mwh": 22.721,
+      "p10_p90_coverage": 0.772,
+      "rmse_eur_per_mwh": 35.615,
+      "rows": 720,
+      "test_end": "2024-12-23",
+      "test_start": "2024-11-24",
+      "train_end": "2024-11-23",
+      "train_start": "2024-05-28"
+    },
+    {
+      "directional_accuracy": 0.773,
+      "mae_eur_per_mwh": 21.192,
+      "p10_p90_coverage": 0.693,
+      "rmse_eur_per_mwh": 37.28,
+      "rows": 720,
+      "test_end": "2025-01-22",
+      "test_start": "2024-12-24",
+      "train_end": "2024-12-23",
+      "train_start": "2024-06-27"
+    },
+    {
+      "directional_accuracy": 0.816,
+      "mae_eur_per_mwh": 18.354,
+      "p10_p90_coverage": 0.732,
+      "rmse_eur_per_mwh": 30.869,
+      "rows": 720,
+      "test_end": "2025-02-21",
+      "test_start": "2025-01-23",
+      "train_end": "2025-01-22",
+      "train_start": "2024-07-27"
+    },
+    {
+      "directional_accuracy": 0.765,
+      "mae_eur_per_mwh": 27.146,
+      "p10_p90_coverage": 0.631,
+      "rmse_eur_per_mwh": 39.593,
+      "rows": 720,
+      "test_end": "2025-03-23",
+      "test_start": "2025-02-22",
+      "train_end": "2025-02-21",
+      "train_start": "2024-08-26"
+    },
+    {
+      "directional_accuracy": 0.752,
+      "mae_eur_per_mwh": 22.556,
+      "p10_p90_coverage": 0.634,
+      "rmse_eur_per_mwh": 31.908,
+      "rows": 719,
+      "test_end": "2025-04-22",
+      "test_start": "2025-03-24",
+      "train_end": "2025-03-23",
+      "train_start": "2024-09-25"
+    },
+    {
+      "directional_accuracy": 0.739,
+      "mae_eur_per_mwh": 19.664,
+      "p10_p90_coverage": 0.639,
+      "rmse_eur_per_mwh": 29.117,
+      "rows": 720,
+      "test_end": "2025-05-22",
+      "test_start": "2025-04-23",
+      "train_end": "2025-04-22",
+      "train_start": "2024-10-25"
+    },
+    {
+      "directional_accuracy": 0.748,
+      "mae_eur_per_mwh": 18.093,
+      "p10_p90_coverage": 0.719,
+      "rmse_eur_per_mwh": 25.496,
+      "rows": 720,
+      "test_end": "2025-06-21",
+      "test_start": "2025-05-23",
+      "train_end": "2025-05-22",
+      "train_start": "2024-11-24"
+    },
+    {
+      "directional_accuracy": 0.762,
+      "mae_eur_per_mwh": 15.518,
+      "p10_p90_coverage": 0.768,
+      "rmse_eur_per_mwh": 21.681,
+      "rows": 720,
+      "test_end": "2025-07-21",
+      "test_start": "2025-06-22",
+      "train_end": "2025-06-21",
+      "train_start": "2024-12-24"
+    },
+    {
+      "directional_accuracy": 0.736,
+      "mae_eur_per_mwh": 18.105,
+      "p10_p90_coverage": 0.647,
+      "rmse_eur_per_mwh": 29.318,
+      "rows": 720,
+      "test_end": "2025-08-20",
+      "test_start": "2025-07-22",
+      "train_end": "2025-07-21",
+      "train_start": "2025-01-23"
+    },
+    {
+      "directional_accuracy": 0.783,
+      "mae_eur_per_mwh": 17.093,
+      "p10_p90_coverage": 0.631,
+      "rmse_eur_per_mwh": 26.497,
+      "rows": 720,
+      "test_end": "2025-09-19",
+      "test_start": "2025-08-21",
+      "train_end": "2025-08-20",
+      "train_start": "2025-02-22"
+    },
+    {
+      "directional_accuracy": 0.68,
+      "mae_eur_per_mwh": 22.715,
+      "p10_p90_coverage": 0.72,
+      "rmse_eur_per_mwh": 37.389,
+      "rows": 1084,
+      "test_end": "2025-10-19",
+      "test_start": "2025-09-20",
+      "train_end": "2025-09-19",
+      "train_start": "2025-03-24"
+    },
+    {
+      "directional_accuracy": 0.717,
+      "mae_eur_per_mwh": 23.344,
+      "p10_p90_coverage": 0.701,
+      "rmse_eur_per_mwh": 34.604,
+      "rows": 2880,
+      "test_end": "2025-11-18",
+      "test_start": "2025-10-20",
+      "train_end": "2025-10-19",
+      "train_start": "2025-04-23"
+    },
+    {
+      "directional_accuracy": 0.684,
+      "mae_eur_per_mwh": 19.8,
+      "p10_p90_coverage": 0.675,
+      "rmse_eur_per_mwh": 30.105,
+      "rows": 2880,
+      "test_end": "2025-12-18",
+      "test_start": "2025-11-19",
+      "train_end": "2025-11-18",
+      "train_start": "2025-05-23"
+    },
+    {
+      "directional_accuracy": 0.655,
+      "mae_eur_per_mwh": 17.776,
+      "p10_p90_coverage": 0.721,
+      "rmse_eur_per_mwh": 28.055,
+      "rows": 2880,
+      "test_end": "2026-01-17",
+      "test_start": "2025-12-19",
+      "train_end": "2025-12-18",
+      "train_start": "2025-06-22"
+    },
+    {
+      "directional_accuracy": 0.56,
+      "mae_eur_per_mwh": 23.102,
+      "p10_p90_coverage": 0.658,
+      "rmse_eur_per_mwh": 33.988,
+      "rows": 2880,
+      "test_end": "2026-02-16",
+      "test_start": "2026-01-18",
+      "train_end": "2026-01-17",
+      "train_start": "2025-07-22"
+    },
+    {
+      "directional_accuracy": 0.572,
+      "mae_eur_per_mwh": 26.994,
+      "p10_p90_coverage": 0.494,
+      "rmse_eur_per_mwh": 35.911,
+      "rows": 2880,
+      "test_end": "2026-03-18",
+      "test_start": "2026-02-17",
+      "train_end": "2026-02-16",
+      "train_start": "2025-08-21"
+    },
+    {
+      "directional_accuracy": 0.596,
+      "mae_eur_per_mwh": 23.985,
+      "p10_p90_coverage": 0.694,
+      "rmse_eur_per_mwh": 34.121,
+      "rows": 2876,
+      "test_end": "2026-04-17",
+      "test_start": "2026-03-19",
+      "train_end": "2026-03-18",
+      "train_start": "2025-09-20"
+    }
+  ],
+  "model_id": "lightgbm_quantile_walk_forward_v1",
+  "overall": {
+    "directional_accuracy": 0.711,
+    "mae_eur_per_mwh": 28.009,
+    "p10_p90_coverage": 0.652,
+    "rmse_eur_per_mwh": 40.138
+  }
+}
