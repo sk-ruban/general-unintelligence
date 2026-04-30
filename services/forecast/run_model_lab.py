@@ -8,10 +8,13 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from services.common.data import load_dam_prices, write_json_artifact
+from services.common.data import (
+    load_dam_prices,
+    load_entsoe_forecasts,
+    write_json_artifact,
+)
 
-
-FEATURES = [
+BASE_FEATURES = [
     "mtu",
     "duration_minutes",
     "dow",
@@ -28,6 +31,15 @@ FEATURES = [
     "roll_7d_std",
 ]
 
+ENTSOE_FEATURES = [
+    "load_forecast_mw",
+    "solar_forecast_mw",
+    "wind_forecast_mw",
+    "res_forecast_mw",
+    "residual_load_mw",
+    "res_share",
+]
+
 
 @dataclass
 class ForecastArtifacts:
@@ -36,7 +48,7 @@ class ForecastArtifacts:
     predictions: pd.DataFrame
 
 
-def build_feature_frame(prices: pd.DataFrame) -> pd.DataFrame:
+def build_feature_frame(prices: pd.DataFrame, use_entsoe: bool = True) -> pd.DataFrame:
     frame = prices.copy()
     frame["date"] = pd.to_datetime(frame["marketDate"])
     frame["dow"] = frame["date"].dt.dayofweek
@@ -52,12 +64,23 @@ def build_feature_frame(prices: pd.DataFrame) -> pd.DataFrame:
     frame["lag_1d"] = grouped.shift(1)
     frame["lag_7d"] = grouped.shift(7)
     frame["lag_14d"] = grouped.shift(14)
-    frame["roll_7d_mean"] = grouped.shift(1).rolling(7, min_periods=2).mean().reset_index(level=0, drop=True)
-    frame["roll_7d_std"] = grouped.shift(1).rolling(7, min_periods=2).std().reset_index(level=0, drop=True)
-    return frame.dropna(subset=FEATURES + ["price"]).reset_index(drop=True)
+    frame["roll_7d_mean"] = (
+        grouped.shift(1)
+        .rolling(7, min_periods=2)
+        .mean()
+        .reset_index(level=0, drop=True)
+    )
+    frame["roll_7d_std"] = (
+        grouped.shift(1).rolling(7, min_periods=2).std().reset_index(level=0, drop=True)
+    )
+    if use_entsoe:
+        frame = attach_entsoe_features(frame)
+    features = available_features(frame)
+    return frame.dropna(subset=features + ["price"]).reset_index(drop=True)
 
 
 def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
+    features = available_features(frame)
     dates = sorted(frame["marketDate"].unique())
     first = pd.Timestamp(dates[0])
     last = pd.Timestamp(dates[-1])
@@ -67,7 +90,7 @@ def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
     cursor = first + pd.Timedelta(days=train_days)
     fold_metrics = []
     predictions = []
-    feature_gain = pd.Series(0.0, index=FEATURES)
+    feature_gain = pd.Series(0.0, index=features)
 
     while cursor + pd.Timedelta(days=test_days) <= last:
         train_start = cursor - pd.Timedelta(days=train_days)
@@ -87,14 +110,20 @@ def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
             "random_state": 42,
             "verbosity": -1,
         }
-        point = lgb.LGBMRegressor(objective="regression_l1", **params).fit(train[FEATURES], train["price"])
-        q10 = lgb.LGBMRegressor(objective="quantile", alpha=0.1, **params).fit(train[FEATURES], train["price"])
-        q90 = lgb.LGBMRegressor(objective="quantile", alpha=0.9, **params).fit(train[FEATURES], train["price"])
+        point = lgb.LGBMRegressor(objective="regression_l1", **params).fit(
+            train[features], train["price"]
+        )
+        q10 = lgb.LGBMRegressor(objective="quantile", alpha=0.1, **params).fit(
+            train[features], train["price"]
+        )
+        q90 = lgb.LGBMRegressor(objective="quantile", alpha=0.9, **params).fit(
+            train[features], train["price"]
+        )
 
-        pred = point.predict(test[FEATURES])
-        p10 = q10.predict(test[FEATURES])
-        p90 = q90.predict(test[FEATURES])
-        feature_gain += pd.Series(point.feature_importances_, index=FEATURES)
+        pred = point.predict(test[features])
+        p10 = q10.predict(test[features])
+        p90 = q90.predict(test[features])
+        feature_gain += pd.Series(point.feature_importances_, index=features)
 
         fold = test[["marketDate", "mtu", "duration_minutes", "price"]].copy()
         fold["pred"] = pred
@@ -107,7 +136,9 @@ def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
         realized_direction = np.sign(np.diff(test["price"].to_numpy()))
         predicted_direction = np.sign(np.diff(pred))
         directional_accuracy = (
-            float(np.mean(realized_direction == predicted_direction)) if len(realized_direction) else 0.0
+            float(np.mean(realized_direction == predicted_direction))
+            if len(realized_direction)
+            else 0.0
         )
         fold_metrics.append(
             {
@@ -115,19 +146,35 @@ def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
                 "train_end": (train_end - pd.Timedelta(days=1)).date().isoformat(),
                 "test_start": train_end.date().isoformat(),
                 "test_end": (test_end - pd.Timedelta(days=1)).date().isoformat(),
-                "mae_eur_per_mwh": round(float(mean_absolute_error(test["price"], pred)), 3),
+                "mae_eur_per_mwh": round(
+                    float(mean_absolute_error(test["price"], pred)), 3
+                ),
                 "rmse_eur_per_mwh": round(float(rmse), 3),
-                "p10_p90_coverage": round(float(((test["price"] >= fold["p10"]) & (test["price"] <= fold["p90"])).mean()), 3),
+                "p10_p90_coverage": round(
+                    float(
+                        (
+                            (test["price"] >= fold["p10"])
+                            & (test["price"] <= fold["p90"])
+                        ).mean()
+                    ),
+                    3,
+                ),
                 "directional_accuracy": round(directional_accuracy, 3),
                 "rows": int(len(test)),
             }
         )
         cursor += pd.Timedelta(days=step_days)
 
-    pred_frame = pd.concat(predictions, ignore_index=True) if predictions else pd.DataFrame()
+    pred_frame = (
+        pd.concat(predictions, ignore_index=True) if predictions else pd.DataFrame()
+    )
     metrics = {
         "model_id": "lightgbm_quantile_walk_forward_v1",
-        "feature_set": "DAM lags + calendar + realized volatility; ENTSO-E adapter is token-ready for load/RES supplement",
+        "feature_set": feature_set_label(features),
+        "features": features,
+        "entsoe_rows": (
+            int(frame["has_entsoe"].sum()) if "has_entsoe" in frame.columns else 0
+        ),
         "fold_count": len(fold_metrics),
         "folds": fold_metrics,
         "overall": _aggregate_metrics(fold_metrics),
@@ -138,14 +185,48 @@ def walk_forward_cv(frame: pd.DataFrame) -> ForecastArtifacts:
     return ForecastArtifacts(frame=frame, metrics=metrics, predictions=pred_frame)
 
 
+def attach_entsoe_features(frame: pd.DataFrame) -> pd.DataFrame:
+    entsoe = load_entsoe_forecasts()
+    if entsoe.empty:
+        frame["has_entsoe"] = False
+        return frame
+    feature_cols = ["timestamp", *ENTSOE_FEATURES]
+    merged = frame.merge(entsoe[feature_cols], on="timestamp", how="left")
+    merged["has_entsoe"] = merged["load_forecast_mw"].notna()
+    return merged
+
+
+def available_features(frame: pd.DataFrame) -> list[str]:
+    entsoe_present = all(col in frame.columns for col in ENTSOE_FEATURES)
+    if entsoe_present and frame[ENTSOE_FEATURES].notna().all(axis=1).sum() >= 1000:
+        return [*BASE_FEATURES, *ENTSOE_FEATURES]
+    return BASE_FEATURES
+
+
+def feature_set_label(features: list[str]) -> str:
+    if all(feature in features for feature in ENTSOE_FEATURES):
+        return "DAM lags + calendar + ENTSO-E load + RES forecasts + residual load"
+    return (
+        "DAM lags + calendar + realized volatility; ENTSO-E cache missing or too sparse"
+    )
+
+
 def _aggregate_metrics(folds: list[dict]) -> dict:
     if not folds:
         return {}
     return {
-        "mae_eur_per_mwh": round(float(np.mean([fold["mae_eur_per_mwh"] for fold in folds])), 3),
-        "rmse_eur_per_mwh": round(float(np.mean([fold["rmse_eur_per_mwh"] for fold in folds])), 3),
-        "p10_p90_coverage": round(float(np.mean([fold["p10_p90_coverage"] for fold in folds])), 3),
-        "directional_accuracy": round(float(np.mean([fold["directional_accuracy"] for fold in folds])), 3),
+        "mae_eur_per_mwh": round(
+            float(np.mean([fold["mae_eur_per_mwh"] for fold in folds])), 3
+        ),
+        "rmse_eur_per_mwh": round(
+            float(np.mean([fold["rmse_eur_per_mwh"] for fold in folds])), 3
+        ),
+        "p10_p90_coverage": round(
+            float(np.mean([fold["p10_p90_coverage"] for fold in folds])), 3
+        ),
+        "directional_accuracy": round(
+            float(np.mean([fold["directional_accuracy"] for fold in folds])), 3
+        ),
     }
 
 
@@ -155,7 +236,9 @@ def _metrics_by_year(predictions: pd.DataFrame) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for year, group in predictions.groupby(predictions["marketDate"].str.slice(0, 4)):
         out[str(year)] = {
-            "mae_eur_per_mwh": round(float(mean_absolute_error(group["price"], group["pred"])), 3),
+            "mae_eur_per_mwh": round(
+                float(mean_absolute_error(group["price"], group["pred"])), 3
+            ),
             "rows": int(len(group)),
         }
     return out
@@ -165,7 +248,10 @@ def _feature_importance(feature_gain: pd.Series) -> dict[str, float]:
     total = feature_gain.sum()
     if total <= 0:
         return {}
-    return {key: round(float(value / total), 4) for key, value in feature_gain.sort_values(ascending=False).items()}
+    return {
+        key: round(float(value / total), 4)
+        for key, value in feature_gain.sort_values(ascending=False).items()
+    }
 
 
 if __name__ == "__main__":

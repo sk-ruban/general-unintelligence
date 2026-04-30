@@ -7,10 +7,10 @@ from typing import Any
 import pandas as pd
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONVEX_EXPORT = Path("/tmp/general-unintelligence-convex-export")
 DEMO_ARTIFACTS = REPO_ROOT / "public" / "demo_artifacts"
+ENTSOE_CACHE = REPO_ROOT / "data" / "entsoe" / "greek_load_res_forecasts.parquet"
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -50,8 +50,12 @@ def load_dam_prices() -> pd.DataFrame:
     frame["version"] = frame.get("version", 1).fillna(1).astype(int)
     frame["price"] = frame["price"].astype(float)
     sort_cols = ["marketDate", "mtu", "version"]
-    frame = frame.sort_values(sort_cols).drop_duplicates(["marketDate", "mtu"], keep="last")
-    frame["timestamp"] = pd.to_datetime(frame.get("timestamp_local", frame.get("timestampUtc")), utc=True)
+    frame = frame.sort_values(sort_cols).drop_duplicates(
+        ["marketDate", "mtu"], keep="last"
+    )
+    frame["timestamp"] = pd.to_datetime(
+        frame.get("timestamp_local", frame.get("timestampUtc")), utc=True
+    )
     return frame.sort_values(["marketDate", "mtu"]).reset_index(drop=True)
 
 
@@ -67,3 +71,10 @@ def write_json_artifact(name: str, payload: dict[str, Any]) -> Path:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True))
     return path
 
+
+def load_entsoe_forecasts() -> pd.DataFrame:
+    if not ENTSOE_CACHE.exists():
+        return pd.DataFrame()
+    frame = pd.read_parquet(ENTSOE_CACHE)
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True)
+    return frame
