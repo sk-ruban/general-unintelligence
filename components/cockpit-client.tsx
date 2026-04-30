@@ -14,6 +14,7 @@ import {
   MapIcon,
   RotateCw,
   Search,
+  Settings,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -59,6 +60,7 @@ import {
   priceRangeLabel,
   priceRangeResolution,
 } from "@/lib/price-range";
+import { activeTenant } from "@/lib/tenants";
 import type {
   AggregatedCurvePoint,
   BatteryTwinConfig,
@@ -505,18 +507,39 @@ function AppSidebar({ activeView, onViewChange }: { activeView: View; onViewChan
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-white/10 border-t p-3">
-        <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-700 text-[10px] font-semibold">
-            OM
-          </div>
-          <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-            <div className="text-[12px] font-medium">Operator Mode</div>
-            <div className="mono truncate text-[11px] text-zinc-500">ID: BESS-GR-01</div>
-          </div>
-        </div>
+        <TenantFooter />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
+  );
+}
+
+function TenantFooter() {
+  const tenant = activeTenant;
+
+  return (
+    <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:justify-center">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] p-1">
+        <Image
+          src={tenant.logoSrc}
+          alt={`${tenant.displayName} icon`}
+          width={24}
+          height={24}
+          className="size-5 object-contain"
+        />
+      </div>
+      <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
+        <div className="text-[13px] font-medium leading-tight text-zinc-100">{tenant.displayName}</div>
+        <div className="truncate text-[11px] leading-tight text-zinc-500">{tenant.loginEmail}</div>
+      </div>
+      <button
+        className="flex size-7 shrink-0 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-100 group-data-[collapsible=icon]:hidden"
+        type="button"
+        aria-label="Tenant settings"
+      >
+        <Settings className="size-3.5" />
+      </button>
+    </div>
   );
 }
 
@@ -2263,7 +2286,7 @@ function getActionRange(dispatch: DispatchPoint[], action: DispatchAction) {
 
 function marketModeLabel(mode: DataHealth["mode"] | undefined) {
   if (mode === "convex") return "Convex";
-  if (mode === "duckdb") return "DuckDB-WASM";
+  if (mode === "convex-http") return "Convex HTTP";
   if (mode === "json-fallback") return "JSON fallback";
   return "loading";
 }
