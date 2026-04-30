@@ -28,12 +28,7 @@ const MAP_LAYERS: Array<{ id: MapLayer; label: string }> = [
   { id: "load", label: "Connections" },
 ];
 
-export function GridFlowMap({
-  flows,
-  nodes,
-  selectedNodeId,
-  onSelectNode,
-}: GridFlowMapProps) {
+export function GridFlowMap({ flows, nodes, selectedNodeId, onSelectNode }: GridFlowMapProps) {
   const [enabledLayers, setEnabledLayers] = useState<Record<MapLayer, boolean>>({
     batteries: true,
     imports: true,
@@ -138,7 +133,7 @@ export function GridFlowMap({
             {visibleAssetNodes.map((node) => (
               <button
                 key={node.id}
-                className={`absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center bg-black/80 text-[8px] shadow-[0_0_20px_rgba(0,0,0,0.72)] transition hover:scale-110 ${nodeSizeClass(node)} ${nodeToneClass(
+                className={`absolute grid -translate-x-1/2 -translate-y-1/2 place-items-center bg-black/80 text-[8px] shadow-[0_0_20px_rgba(0,0,0,0.72)] hover:scale-110 ${nodeSizeClass(node)} ${nodeToneClass(
                   node,
                   node.id === selectedNodeId,
                 )}`}
@@ -157,7 +152,7 @@ export function GridFlowMap({
         {MAP_LAYERS.map((layer) => (
           <button
             key={layer.id}
-            className={`h-7 px-2 text-[10px] uppercase tracking-[0.05em] transition ${
+            className={`h-7 px-2 text-[10px] uppercase tracking-[0.05em] ${
               enabledLayers[layer.id]
                 ? "bg-cyan-300/15 text-[var(--cyan)]"
                 : "text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"

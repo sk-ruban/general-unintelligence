@@ -9,15 +9,12 @@ import {
   Flame,
   Gauge,
   MapIcon,
-  RotateCw,
   Search,
   Settings,
   Zap,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import type { ComponentType } from "react";
-import { Button } from "@/components/ui/button";
 import {
   Sidebar,
   SidebarContent,
@@ -40,8 +37,8 @@ const nav: {
 }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
   { id: "dispatch", label: "Dispatch Plan", icon: Zap },
-  { id: "portfolio", label: "Grid Flow", icon: MapIcon },
   { id: "market", label: "Market", icon: Activity },
+  { id: "portfolio", label: "Grid Flow", icon: MapIcon },
   { id: "weather", label: "Weather", icon: CloudSun },
   { id: "gas", label: "Gas", icon: Flame },
   { id: "twin", label: "Battery Twin", icon: BatteryCharging },
@@ -120,7 +117,7 @@ function TenantFooter() {
         <div className="truncate text-[11px] leading-tight text-zinc-500">{tenant.loginEmail}</div>
       </div>
       <button
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-zinc-500 transition hover:bg-white/[0.04] hover:text-zinc-100 group-data-[collapsible=icon]:hidden"
+        className="flex size-7 shrink-0 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.04] hover:text-zinc-100 group-data-[collapsible=icon]:hidden"
         type="button"
         aria-label="Tenant settings"
       >
@@ -144,17 +141,6 @@ export function TopBar({ selectedDay }: { selectedDay: string }) {
           Latest HEnEx DAM {dayLabel} | Europe/Athens
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 rounded border-white/10 bg-[var(--bg-raised)] px-2.5 font-normal text-[12px] text-zinc-100 shadow-none hover:bg-white/[0.08] hover:text-zinc-100"
-          type="button"
-        >
-          <RotateCw className="size-3 text-[var(--cyan)]" />
-          Sync Model
-        </Button>
-      </div>
     </header>
   );
 }
@@ -168,49 +154,42 @@ export function CommandPalette({
   setOpen: (value: boolean) => void;
   setView: (view: View) => void;
 }) {
-  return (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[14vh]"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={() => setOpen(false)}
-        >
-          <Command
-            className="w-[min(560px,calc(100vw-32px))] rounded border border-white/10 bg-[var(--bg-panel)] shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex h-11 items-center gap-2 border-white/10 border-b px-3">
-              <Search className="h-4 w-4 text-zinc-500" />
-              <Command.Input
-                className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600"
-                placeholder="Jump to view..."
-              />
-            </div>
-            <Command.List className="p-2">
-              <Command.Empty className="p-3 text-[12px] text-zinc-500">No command found.</Command.Empty>
-              {nav.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Command.Item
-                    key={item.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[13px] text-zinc-200 aria-selected:bg-white/10"
-                    onSelect={() => {
-                      setView(item.id);
-                      setOpen(false);
-                    }}
-                  >
-                    <Icon className="h-4 w-4 text-[var(--cyan)]" />
-                    {item.label}
-                  </Command.Item>
-                );
-              })}
-            </Command.List>
-          </Command>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
+  return open ? (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[14vh]">
+      <button
+        aria-label="Close command palette"
+        className="absolute inset-0"
+        type="button"
+        onClick={() => setOpen(false)}
+      />
+      <Command className="relative w-[min(560px,calc(100vw-32px))] rounded border border-white/10 bg-[var(--bg-panel)] shadow-2xl">
+        <div className="flex h-11 items-center gap-2 border-white/10 border-b px-3">
+          <Search className="h-4 w-4 text-zinc-500" />
+          <Command.Input
+            className="w-full bg-transparent text-sm outline-none placeholder:text-zinc-600"
+            placeholder="Jump to view..."
+          />
+        </div>
+        <Command.List className="p-2">
+          <Command.Empty className="p-3 text-[12px] text-zinc-500">No command found.</Command.Empty>
+          {nav.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Command.Item
+                key={item.id}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[13px] text-zinc-200 aria-selected:bg-white/10"
+                onSelect={() => {
+                  setView(item.id);
+                  setOpen(false);
+                }}
+              >
+                <Icon className="h-4 w-4 text-[var(--cyan)]" />
+                {item.label}
+              </Command.Item>
+            );
+          })}
+        </Command.List>
+      </Command>
+    </div>
+  ) : null;
 }

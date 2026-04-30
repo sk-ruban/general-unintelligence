@@ -1,7 +1,6 @@
 "use client";
 
 import { BatteryCharging, BatteryMedium, CirclePause, Plus, RotateCcw, Trash2, X, Zap } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Panel } from "@/components/ui/panel";
 import { BATTERY_TWIN_TEMPLATES, type BatteryTwinTemplateId } from "@/lib/battery-twin";
@@ -181,7 +180,7 @@ export function ControlRoom({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className="inline-flex h-8 items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 transition hover:bg-cyan-300/15 motion-reduce:transition-none"
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 hover:bg-cyan-300/15"
               type="button"
               onClick={() => setAssetDialogOpen(true)}
             >
@@ -240,7 +239,7 @@ export function ControlRoom({
               <button
                 ref={closeButtonRef}
                 aria-label="Close add asset"
-                className="grid size-8 place-items-center rounded-md border border-white/10 bg-black/20 text-zinc-400 transition hover:text-zinc-100 motion-reduce:transition-none"
+                className="grid size-8 place-items-center rounded-md border border-white/10 bg-black/20 text-zinc-400 hover:text-zinc-100"
                 type="button"
                 onClick={() => setAssetDialogOpen(false)}
               >
@@ -252,7 +251,7 @@ export function ControlRoom({
                 <label className="grid gap-1.5">
                   <span className="text-[11px] text-zinc-500 uppercase tracking-[0.1em]">Asset name</span>
                   <input
-                    className="h-9 rounded-md border border-white/10 bg-black/30 px-3 text-[13px] text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cyan-300/50 motion-reduce:transition-none"
+                    className="h-9 rounded-md border border-white/10 bg-black/30 px-3 text-[13px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
                     placeholder={selectedTemplate?.profile.name ?? "Battery asset"}
                     value={assetDraft.name}
                     onChange={(event) => updateAssetMetric("name", event.target.value)}
@@ -261,7 +260,7 @@ export function ControlRoom({
                 <label className="grid gap-1.5">
                   <span className="text-[11px] text-zinc-500 uppercase tracking-[0.1em]">Region</span>
                   <input
-                    className="h-9 rounded-md border border-white/10 bg-black/30 px-3 text-[13px] text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-cyan-300/50 motion-reduce:transition-none"
+                    className="h-9 rounded-md border border-white/10 bg-black/30 px-3 text-[13px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/50"
                     placeholder={
                       selectedTemplate?.profile.region ?? selectedTemplate?.profile.country ?? "Greece"
                     }
@@ -317,7 +316,7 @@ export function ControlRoom({
                 {BATTERY_TWIN_TEMPLATES.map((template) => (
                   <button
                     key={template.profile.id}
-                    className={`rounded-md border p-3 text-left transition motion-reduce:transition-none ${
+                    className={`rounded-md border p-3 text-left ${
                       assetDraft.templateId === template.profile.id
                         ? "border-cyan-300/60 bg-cyan-300/[0.08]"
                         : "border-white/10 bg-black/20 hover:bg-white/[0.04]"
@@ -341,14 +340,14 @@ export function ControlRoom({
             </div>
             <div className="flex justify-end gap-2 border-white/10 border-t p-4">
               <button
-                className="h-9 rounded-md border border-white/10 bg-black/20 px-3 text-[12px] text-zinc-400 transition hover:text-zinc-100 motion-reduce:transition-none"
+                className="h-9 rounded-md border border-white/10 bg-black/20 px-3 text-[12px] text-zinc-400 hover:text-zinc-100"
                 type="button"
                 onClick={() => setAssetDialogOpen(false)}
               >
                 Cancel
               </button>
               <button
-                className="h-9 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 transition hover:bg-cyan-300/15 motion-reduce:transition-none"
+                className="h-9 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 hover:bg-cyan-300/15"
                 type="button"
                 onClick={addAsset}
               >
@@ -377,7 +376,6 @@ function BatteryControlCard({
   onOverrideChange: (command: ManualOverrideCommand) => void;
   onRemove?: () => void;
 }) {
-  const reduceMotion = useReducedMotion();
   const effectiveAction = effectiveBatteryAction(site, override);
   const currentMw =
     effectiveAction === "idle"
@@ -394,10 +392,7 @@ function BatteryControlCard({
   const StateIcon = state.icon;
 
   return (
-    <motion.div
-      layout={!reduceMotion}
-      className={`group overflow-hidden rounded-lg border bg-[var(--bg-panel)] transition-colors duration-300 ${state.border}`}
-    >
+    <div className={`group overflow-hidden rounded-lg border bg-[var(--bg-panel)] ${state.border}`}>
       <div className="flex min-h-[440px] flex-col p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -411,7 +406,7 @@ function BatteryControlCard({
             {onRemove ? (
               <button
                 aria-label={`Remove local asset ${site.name}`}
-                className="grid size-8 place-items-center rounded-md border border-red-300/15 bg-red-300/[0.06] text-red-200/80 transition hover:bg-red-300/10 hover:text-red-100 motion-reduce:transition-none"
+                className="grid size-8 place-items-center rounded-md border border-red-300/15 bg-red-300/[0.06] text-red-200/80 hover:bg-red-300/10 hover:text-red-100"
                 title="Remove local operator asset from this browser"
                 type="button"
                 onClick={onRemove}
@@ -430,26 +425,16 @@ function BatteryControlCard({
 
         <div className="relative my-5 flex flex-1 items-center justify-center">
           <div className={`absolute inset-x-8 top-1/2 h-px ${state.track}`} />
-          <EnergyParticles action={effectiveAction} reduceMotion={reduceMotion} />
           <div className="relative h-[265px] w-[126px] rounded-[28px] border border-zinc-300/20 bg-[linear-gradient(145deg,rgba(250,250,250,0.18),rgba(255,255,255,0.06)_42%,rgba(0,0,0,0.32))] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_28px_80px_rgba(0,0,0,0.38)]">
             <div className="absolute left-1/2 top-[-14px] h-4 w-14 -translate-x-1/2 rounded-t-[16px] border border-zinc-300/20 border-b-0 bg-zinc-100/10" />
             <div className="relative h-full overflow-hidden rounded-[22px] border border-white/10 bg-black/40">
-              <LiquidBatteryFill
-                action={effectiveAction}
-                fillClassName={state.fill}
-                reduceMotion={reduceMotion}
-                socScale={socScale}
-              />
+              <LiquidBatteryFill fillClassName={state.fill} socScale={socScale} />
               <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.18),transparent_24%,transparent_68%,rgba(255,255,255,0.08))]" />
-              <motion.div
-                key={`${site.id}-${effectiveAction}-icon`}
+              <div
                 className={`absolute left-1/2 top-1/2 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur ${state.core}`}
-                initial={reduceMotion ? false : { opacity: 0, scale: 0.88 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
               >
                 <StateIcon className="size-7" />
-              </motion.div>
+              </div>
               <div className="absolute inset-x-0 bottom-3 text-center">
                 <div className="text-[28px] font-semibold tracking-[-0.03em] text-white">
                   {Math.round(site.socPercent)}
@@ -488,7 +473,7 @@ function BatteryControlCard({
               <button
                 key={command.value}
                 aria-label={`${site.name} ${command.label}`}
-                className={`flex h-9 items-center justify-center rounded-md border transition duration-150 motion-reduce:transition-none ${
+                className={`flex h-9 items-center justify-center rounded-md border ${
                   override === command.value
                     ? "border-white/30 bg-white/15 text-zinc-50"
                     : "border-white/10 bg-black/20 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-100"
@@ -503,99 +488,22 @@ function BatteryControlCard({
           })}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
-function LiquidBatteryFill({
-  action,
-  fillClassName,
-  reduceMotion,
-  socScale,
-}: {
-  action: DispatchAction;
-  fillClassName: string;
-  reduceMotion: boolean | null;
-  socScale: number;
-}) {
-  const surfaceY = action === "charge" ? [3, -5, 3] : action === "discharge" ? [-5, 3, -5] : 0;
-  const currentY = action === "charge" ? [190, 24] : [24, 190];
-  const waveMotion = reduceMotion ? { x: 0 } : { x: ["0%", "-33.333%"] };
+function LiquidBatteryFill({ fillClassName, socScale }: { fillClassName: string; socScale: number }) {
+  const fillHeight = `${Math.round(socScale * 1000) / 10}%`;
+
   return (
-    <motion.div aria-hidden="true" className="absolute inset-0 overflow-hidden" initial={false}>
-      <motion.div
-        className={`absolute inset-0 origin-bottom overflow-visible ${fillClassName}`}
-        initial={false}
-        animate={{ opacity: 1, scaleY: socScale }}
-        transition={{ duration: reduceMotion ? 0 : 0.55, ease: [0.22, 1, 0.36, 1] }}
+    <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
+      <div
+        className={`absolute inset-x-0 bottom-0 overflow-hidden ${fillClassName}`}
+        style={{ height: fillHeight }}
       >
-        <motion.div
-          className="absolute inset-x-0 top-0 h-11 -translate-y-1/2 overflow-hidden"
-          initial={false}
-          animate={reduceMotion ? { y: 0 } : { y: surfaceY }}
-          transition={{
-            duration: 1.4,
-            repeat: reduceMotion ? 0 : Number.POSITIVE_INFINITY,
-            ease: "easeInOut",
-          }}
-        >
-          <motion.div
-            className="absolute top-1/2 left-0 h-11 w-[300%] -translate-y-1/2 text-white/35"
-            initial={false}
-            animate={waveMotion}
-            transition={{
-              duration: 2.8,
-              repeat: reduceMotion ? 0 : Number.POSITIVE_INFINITY,
-              ease: "linear",
-            }}
-          >
-            <svg aria-hidden="true" className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 360 44">
-              <path
-                d="M0 23 C20 5 40 5 60 23 S100 41 120 23 S160 5 180 23 S220 41 240 23 S280 5 300 23 S340 41 360 23 V44 H0 Z"
-                fill="currentColor"
-              />
-            </svg>
-          </motion.div>
-          <motion.div
-            className="absolute top-[45%] left-0 h-10 w-[300%] -translate-y-1/2 text-white/18"
-            initial={false}
-            animate={waveMotion}
-            transition={{
-              duration: 3.6,
-              repeat: reduceMotion ? 0 : Number.POSITIVE_INFINITY,
-              ease: "linear",
-            }}
-          >
-            <svg aria-hidden="true" className="h-full w-full" preserveAspectRatio="none" viewBox="0 0 360 40">
-              <path
-                d="M0 20 C18 32 42 32 60 20 S102 8 120 20 S162 32 180 20 S222 8 240 20 S282 32 300 20 S342 8 360 20 V40 H0 Z"
-                fill="currentColor"
-              />
-            </svg>
-          </motion.div>
-        </motion.div>
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),transparent_34%,rgba(0,0,0,0.18))]" />
-      </motion.div>
-      {action === "idle" ? null : (
-        <motion.div
-          className="absolute inset-x-5 top-0 h-px rounded-full bg-white/60 shadow-[0_0_18px_rgba(255,255,255,0.55)]"
-          initial={false}
-          animate={
-            reduceMotion
-              ? { opacity: 0 }
-              : {
-                  opacity: [0, 0.85, 0],
-                  y: currentY,
-                }
-          }
-          transition={{
-            duration: 1.6,
-            repeat: reduceMotion ? 0 : Number.POSITIVE_INFINITY,
-            ease: [0.22, 1, 0.36, 1],
-          }}
-        />
-      )}
-    </motion.div>
+      </div>
+    </div>
   );
 }
 
@@ -632,45 +540,6 @@ function MetricInput({
         {suffix ? <span className="pr-3 text-[11px] text-zinc-500">{suffix}</span> : null}
       </div>
     </label>
-  );
-}
-
-function EnergyParticles({ action, reduceMotion }: { action: DispatchAction; reduceMotion: boolean | null }) {
-  if (action === "idle") {
-    return (
-      <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
-        <div className="h-20 w-20 rounded-full border border-white/10 bg-white/[0.02]" />
-      </div>
-    );
-  }
-  const direction = action === "charge" ? 46 : -46;
-  return (
-    <div className="pointer-events-none absolute inset-x-4 top-1/2 h-16 -translate-y-1/2">
-      {Array.from({ length: 5 }, (_, index) => (
-        <motion.span
-          // biome-ignore lint/suspicious/noArrayIndexKey: visual particles are stable decorative slots.
-          key={index}
-          className={`absolute top-1/2 size-1.5 rounded-full ${action === "charge" ? "bg-[var(--green)]" : "bg-[var(--amber)]"}`}
-          initial={false}
-          animate={
-            reduceMotion
-              ? { opacity: 0.35 }
-              : {
-                  opacity: [0, 0.95, 0],
-                  x: action === "charge" ? [-direction, 0] : [0, -direction],
-                  y: [0, index % 2 === 0 ? -10 : 10],
-                }
-          }
-          transition={{
-            duration: 1.25,
-            delay: index * 0.16,
-            repeat: reduceMotion ? 0 : Number.POSITIVE_INFINITY,
-            ease: [0.22, 1, 0.36, 1],
-          }}
-          style={{ left: `${18 + index * 16}%` }}
-        />
-      ))}
-    </div>
   );
 }
 
