@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
-import { MARKET_TIME_ZONE } from "@/lib/market-time";
+import type { CurveDataApi } from "@/lib/curve-data/types";
+import { athensLabelFromUtc, MARKET_TIME_ZONE } from "@/lib/market-time";
 import type { AggregatedCurvePoint, DamPricePoint, DataHealth } from "@/lib/types";
 import { curveFromRaw } from "./normalize";
 import type { DayRange, MarketDataApi } from "./types";
@@ -14,6 +15,7 @@ type FallbackMarketDataApi = Pick<
 type ConvexPriceRow = {
   marketDate: string;
   timestamp: string;
+  timestampUtc?: string;
   mtu: number;
   mcpEurPerMwh?: number;
   totalTrades?: number;
@@ -40,6 +42,11 @@ type ConvexDashboard = {
   curveFragility?: unknown[];
   summaryMode?: string;
 };
+
+type FallbackCurveDataApi = Pick<
+  CurveDataApi,
+  "getAvailableCurveDays" | "getCurveHealth" | "getCurveSlice" | "initializeCurveDb"
+>;
 
 export function createConvexHttpMarketDataClient(
   siteUrl: string,
@@ -117,6 +124,61 @@ export function createConvexHttpMarketDataClient(
   }
 }
 
+export function createConvexHttpCurveDataClient(siteUrl: string, fallback: FallbackCurveDataApi): CurveDataApi {
+  const baseUrl = siteUrl.replace(/\/+$/, "");
+
+  return {
+    async initializeCurveDb() {
+      return await getCurveHealth();
+    },
+    async getAvailableCurveDays() {
+      try {
+        const catalog = await fetchConvexJson<ConvexCatalog>(baseUrl, "/market/dam/catalog");
+        const days = marketDaysFromCoverage(catalog.coverage);
+        if (days && days.length > 0) {
+          return days;
+        }
+      } catch {
+        // Convex HTTP routes are optional in local dev; fall back to static data below.
+      }
+      return await fallback.getAvailableCurveDays();
+    },
+    async getCurveSlice(marketDate: string, mtu: number) {
+      try {
+        const curves = await fetchConvexCurves(baseUrl, marketDate, mtu);
+        if (curves.length > 0) {
+          return curves;
+        }
+      } catch {
+        // Convex may not serve raw curve rows; fall back to the bundled sample.
+      }
+      return await fallback.getCurveSlice(marketDate, mtu);
+    },
+    async getCurveHealth() {
+      return await getCurveHealth();
+    },
+  };
+
+  async function getCurveHealth(): Promise<DataHealth> {
+    try {
+      const [catalog, dashboard] = await Promise.all([
+        fetchConvexJson<ConvexCatalog>(baseUrl, "/market/dam/catalog"),
+        fetchConvexJson<ConvexDashboard>(baseUrl, "/market/dam/dashboard"),
+      ]);
+      return {
+        mode: "convex-http",
+        priceRows: rowCount(catalog.coverage) || dashboard.priceSeries?.length || 0,
+        curveRows: Array.isArray(dashboard.curveFragility) ? dashboard.curveFragility.length : 0,
+        firstMarketDate: catalog.coverage?.firstDate ?? dashboard.range?.from ?? null,
+        lastMarketDate: catalog.coverage?.lastDate ?? dashboard.range?.to ?? null,
+        generatedAtUtc: null,
+      };
+    } catch {
+      return await fallback.getCurveHealth();
+    }
+  }
+}
+
 async function fetchConvexPrices(baseUrl: string, dayRange: DayRange): Promise<DamPricePoint[]> {
   if (dayRange.resolution === "daily-average") {
     try {
@@ -164,6 +226,7 @@ function normalizePriceRows(rows: ConvexPriceRow[]) {
   return rows
     .filter((row) => typeof row.mcpEurPerMwh === "number")
     .map(priceFromConvex)
+    .filter((point): point is DamPricePoint => point !== null)
     .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc));
 }
 
@@ -210,13 +273,18 @@ function convexHttpUrl(baseUrl: string, path: string) {
   return new URL(href, "http://localhost");
 }
 
-function priceFromConvex(row: ConvexPriceRow): DamPricePoint {
+function priceFromConvex(row: ConvexPriceRow): DamPricePoint | null {
+  const timestampUtc = utcTimestampFromConvexRow(row);
+  if (!timestampUtc) {
+    return null;
+  }
+
   return {
     interval: {
       marketDate: row.marketDate,
       mtu: row.mtu,
-      timestampUtc: row.timestamp,
-      athensLabel: row.timestamp,
+      timestampUtc,
+      athensLabel: athensLabelFromUtc(timestampUtc),
     },
     mcpEurPerMwh: row.mcpEurPerMwh ?? 0,
     totalTrades: row.totalTrades ?? null,
@@ -224,6 +292,18 @@ function priceFromConvex(row: ConvexPriceRow): DamPricePoint {
     version: row.version ?? null,
     sourceFile: row.sourceFile ?? "convex",
   };
+}
+
+function utcTimestampFromConvexRow(row: ConvexPriceRow) {
+  const timestamp = row.timestampUtc ?? row.timestamp;
+  if (!timestamp) {
+    return null;
+  }
+  const parsed = DateTime.fromISO(timestamp, { setZone: true });
+  if (!parsed.isValid) {
+    return null;
+  }
+  return parsed.toUTC().toISO({ suppressMilliseconds: true });
 }
 
 function rowCount(coverage: ConvexCatalog["coverage"]) {

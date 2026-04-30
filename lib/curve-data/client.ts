@@ -1,7 +1,7 @@
 "use client";
 
-import * as Comlink from "comlink";
-import type { CurveWorkerApi } from "./curve-worker";
+import { getConvexSiteUrl } from "@/lib/convex-url";
+import { createConvexHttpCurveDataClient } from "@/lib/market-data/convex-http";
 import {
   getJsonCurveDays,
   getJsonCurveHealth,
@@ -18,20 +18,12 @@ export function getCurveDataClient(): Promise<CurveDataApi> {
 }
 
 async function createClient(): Promise<CurveDataApi> {
-  if (typeof Worker === "undefined") {
-    return jsonClient;
+  const convexSiteUrl = getConvexSiteUrl();
+  if (convexSiteUrl) {
+    return createConvexHttpCurveDataClient(convexSiteUrl, jsonClient);
   }
-
-  try {
-    const worker = new Worker(new URL("./curve-worker.ts", import.meta.url), { type: "module" });
-    const remote = Comlink.wrap<CurveWorkerApi>(worker);
-    await remote.initializeCurveDb();
-    return remote;
-  } catch (error) {
-    console.warn("Curve worker failed; using JSON curve fallback.", error);
-    await initializeJsonCurveData();
-    return jsonClient;
-  }
+  await initializeJsonCurveData();
+  return jsonClient;
 }
 
 const jsonClient: CurveDataApi = {

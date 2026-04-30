@@ -50,7 +50,7 @@ export type DispatchPoint = {
 };
 
 export type DataHealth = {
-  mode: "convex" | "convex-http" | "duckdb" | "json-fallback";
+  mode: "convex" | "convex-http" | "json-fallback";
   priceRows: number;
   curveRows: number;
   firstMarketDate: string | null;
