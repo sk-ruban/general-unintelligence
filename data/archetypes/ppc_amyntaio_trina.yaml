@@ -1,0 +1,29 @@
+name: PPC Amyntaio Trina
+power_mw: 98
+contracted_energy_mwh: 196
+nameplate_energy_mwh: 196
+duration_hours: 2
+rte_pct: 88
+soc_min_pct: 10
+soc_max_pct: 90
+reserve_soc_pct: 5
+max_cycles_per_day: 1.5
+warranty_throughput_mwh: null
+aux_load_kw:
+  active: 280
+  standby: 45
+thermal_derating:
+  - temp_c: 25
+    derate_pu: 1
+  - temp_c: 35
+    derate_pu: 0.96
+  - temp_c: 45
+    derate_pu: 0.9
+confidence:
+  power_mw: medium
+  contracted_energy_mwh: medium
+  nameplate_energy_mwh: medium
+  rte_pct: medium
+  soc_window: medium
+  aux_load_kw: low
+  warranty_throughput_mwh: unknown

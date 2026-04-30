@@ -40,7 +40,12 @@ import {
   SidebarProvider,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { buildDispatchSchedule, defaultBatteryTwin, summarizeDispatch } from "@/lib/battery-dispatch";
+import {
+  type BatteryArchetypeSlug,
+  batteryArchetypes,
+  twinConfigFromArchetype,
+} from "@/lib/battery-archetypes";
+import { buildDispatchSchedule, summarizeDispatch } from "@/lib/battery-dispatch";
 import { loadExternalSignals } from "@/lib/convex-signals";
 import { getCurveDataClient } from "@/lib/curve-data/client";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh, formatPercent } from "@/lib/format";
@@ -63,6 +68,49 @@ import type {
   DispatchPoint,
   ExternalSignalPanel,
 } from "@/lib/types";
+
+type OptimizerArtifact = {
+  asset_slug: BatteryArchetypeSlug;
+  market_date: string;
+  resolution_minutes: 15 | 60;
+  scenarios: Record<
+    string,
+    {
+      charge_mw: number[];
+      discharge_mw: number[];
+      soc_mwh: number[];
+      cycle_count: number;
+      expected_revenue_eur: number;
+      degradation_cost_eur: number;
+      feasibility_violations: string[];
+      solve_status: string;
+      solve_time_ms: number;
+      input_prices_eur_per_mwh: number[];
+    }
+  >;
+};
+
+type ModelLabArtifact = {
+  model_id: string;
+  feature_set: string;
+  fold_count: number;
+  overall?: Record<string, number>;
+  by_year?: Record<string, { mae_eur_per_mwh: number; rows: number }>;
+  feature_importance?: Record<string, number>;
+};
+
+type BacktestArtifact = {
+  start_date: string | null;
+  end_date: string | null;
+  results: {
+    annualized_eur_per_mw_per_year: Record<string, number>;
+    perfect_foresight_eur_per_mw_per_year: Record<string, number>;
+    capture_rate: number;
+    sharpe: number;
+    max_drawdown_eur: number;
+    feasibility_violations: number;
+  };
+};
 
 type View =
   | "control"
@@ -121,7 +169,18 @@ export function CockpitClient() {
   const [selectedSiteId, setSelectedSiteId] = useState("kozani-north");
   const [selectedGridNodeId, setSelectedGridNodeId] = useState("battery-kozani-north");
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [twin, setTwin] = useState<BatteryTwinConfig>(defaultBatteryTwin);
+  const [selectedAssetSlug, setSelectedAssetSlug] =
+    useState<BatteryArchetypeSlug>("metlen_karatzis_thessaly");
+  const [twin, setTwin] = useState<BatteryTwinConfig>(
+    twinConfigFromArchetype(batteryArchetypes.metlen_karatzis_thessaly),
+  );
+  const [optimizerArtifact, setOptimizerArtifact] = useState<OptimizerArtifact | null>(null);
+  const [modelLabArtifact, setModelLabArtifact] = useState<ModelLabArtifact | null>(null);
+  const [backtestArtifact, setBacktestArtifact] = useState<BacktestArtifact | null>(null);
+
+  useEffect(() => {
+    setTwin(twinConfigFromArchetype(batteryArchetypes[selectedAssetSlug]));
+  }, [selectedAssetSlug]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,8 +281,37 @@ export function CockpitClient() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const dispatch = useMemo(() => buildDispatchSchedule(prices, twin), [prices, twin]);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadArtifacts() {
+      const slugSuffix = selectedAssetSlug === "metlen_karatzis_thessaly" ? "" : `_${selectedAssetSlug}`;
+      const [dispatchResult, modelResult, backtestResult] = await Promise.allSettled([
+        fetch(`/demo_artifacts/demo_dispatch${slugSuffix}.json`).then((response) =>
+          response.ok ? response.json() : null,
+        ),
+        fetch("/demo_artifacts/model_lab.json").then((response) => (response.ok ? response.json() : null)),
+        fetch("/demo_artifacts/backtest_summary.json").then((response) =>
+          response.ok ? response.json() : null,
+        ),
+      ]);
+      if (cancelled) return;
+      setOptimizerArtifact(dispatchResult.status === "fulfilled" ? dispatchResult.value : null);
+      setModelLabArtifact(modelResult.status === "fulfilled" ? modelResult.value : null);
+      setBacktestArtifact(backtestResult.status === "fulfilled" ? backtestResult.value : null);
+    }
+    loadArtifacts().catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAssetSlug]);
+
+  const heuristicDispatch = useMemo(() => buildDispatchSchedule(prices, twin), [prices, twin]);
+  const dispatch = useMemo(
+    () => artifactDispatchToRows(optimizerArtifact, prices, twin) ?? heuristicDispatch,
+    [optimizerArtifact, prices, twin, heuristicDispatch],
+  );
   const summary = useMemo(() => summarizeDispatch(dispatch), [dispatch]);
+  const selectedArchetype = batteryArchetypes[selectedAssetSlug];
   const latestPrice = prices.at(-1)?.mcpEurPerMwh ?? null;
   const priceValues = prices.map((point) => point.mcpEurPerMwh);
   const lowPrice = priceValues.length > 0 ? Math.min(...priceValues) : null;
@@ -325,9 +413,26 @@ export function CockpitClient() {
                   />
                 ) : null}
                 {view === "signals" ? <SignalsView signals={signals} /> : null}
-                {view === "twin" ? <BatteryTwin twin={twin} setTwin={setTwin} summary={summary} /> : null}
-                {view === "model" ? <ModelLab twin={twin} summary={summary} dispatch={dispatch} /> : null}
-                {view === "scenarios" ? <Scenarios dispatch={dispatch} /> : null}
+                {view === "twin" ? (
+                  <BatteryTwin
+                    archetype={selectedArchetype}
+                    selectedAssetSlug={selectedAssetSlug}
+                    setSelectedAssetSlug={setSelectedAssetSlug}
+                    twin={twin}
+                    setTwin={setTwin}
+                    summary={summary}
+                  />
+                ) : null}
+                {view === "model" ? (
+                  <ModelLab
+                    artifact={modelLabArtifact}
+                    backtest={backtestArtifact}
+                    twin={twin}
+                    summary={summary}
+                    dispatch={dispatch}
+                  />
+                ) : null}
+                {view === "scenarios" ? <Scenarios artifact={optimizerArtifact} dispatch={dispatch} /> : null}
                 {view === "health" ? (
                   <DataHealthView
                     curveDays={curveDays}
@@ -677,6 +782,48 @@ function PriceRangeControl({
   );
 }
 
+function artifactDispatchToRows(
+  artifact: OptimizerArtifact | null,
+  prices: DamPricePoint[],
+  twin: BatteryTwinConfig,
+): DispatchPoint[] | null {
+  const base = artifact?.scenarios.base;
+  const marketDate = prices[0]?.interval.marketDate;
+  if (!artifact || !base || artifact.market_date !== marketDate || prices.length !== base.charge_mw.length) {
+    return null;
+  }
+  const dt = artifact.resolution_minutes / 60;
+  return prices
+    .slice()
+    .sort((a, b) => a.interval.timestampUtc.localeCompare(b.interval.timestampUtc))
+    .map((point, index) => {
+      const charge = base.charge_mw[index] ?? 0;
+      const discharge = base.discharge_mw[index] ?? 0;
+      const action: DispatchAction = discharge > 0.001 ? "discharge" : charge > 0.001 ? "charge" : "idle";
+      const mw = action === "charge" ? charge : action === "discharge" ? discharge : 0;
+      const mwh = mw * dt;
+      const value = point.mcpEurPerMwh * (discharge - charge) * dt;
+      return {
+        interval: point.interval,
+        action,
+        mw: Number(mw.toFixed(3)),
+        mwh: Number(mwh.toFixed(3)),
+        socMwh: Number((base.soc_mwh[index + 1] ?? base.soc_mwh[index] ?? twin.initialSocMwh).toFixed(3)),
+        priceEurPerMwh: point.mcpEurPerMwh,
+        estimatedValueEur: Number(value.toFixed(2)),
+        reason: optimizerReason(action, base.solve_status),
+      };
+    });
+}
+
+function optimizerReason(action: DispatchAction, status: string) {
+  if (status !== "optimal") return `MILP status: ${status}`;
+  if (action === "charge")
+    return "MILP selected charge while respecting SoC, power, terminal SoC, and cycle constraints.";
+  if (action === "discharge") return "MILP selected discharge after degradation and efficiency costs.";
+  return "MILP left interval idle because incremental spread did not clear constraints and cost.";
+}
+
 function priceSeriesKicker(prices: DamPricePoint[], range: PriceRange) {
   if (prices.length === 0) {
     return `${priceRangeLabel(range)} · loading`;
@@ -810,8 +957,16 @@ function GridDetailPanel({
         <div className="grid gap-3 p-3">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-1">
             <DetailMetric label="Asset Type" value={gridNodeKindLabel(node.kind)} detail={node.detail} />
-            <DetailMetric label={detailCopy.powerLabel} value={formatMw(node.mw)} detail={detailCopy.powerDetail} />
-            <DetailMetric label={detailCopy.regionLabel} value={node.region} detail={detailCopy.regionDetail} />
+            <DetailMetric
+              label={detailCopy.powerLabel}
+              value={formatMw(node.mw)}
+              detail={detailCopy.powerDetail}
+            />
+            <DetailMetric
+              label={detailCopy.regionLabel}
+              value={node.region}
+              detail={detailCopy.regionDetail}
+            />
             <DetailMetric
               label="Coordinates"
               value={`${node.latitude.toFixed(2)}, ${node.longitude.toFixed(2)}`}
@@ -1191,10 +1346,16 @@ function EmptyCurveState({
 }
 
 function BatteryTwin({
+  archetype,
+  selectedAssetSlug,
+  setSelectedAssetSlug,
   twin,
   setTwin,
   summary,
 }: {
+  archetype: (typeof batteryArchetypes)[BatteryArchetypeSlug];
+  selectedAssetSlug: BatteryArchetypeSlug;
+  setSelectedAssetSlug: (slug: BatteryArchetypeSlug) => void;
   twin: BatteryTwinConfig;
   setTwin: (value: BatteryTwinConfig) => void;
   summary: ReturnType<typeof summarizeDispatch>;
@@ -1202,8 +1363,19 @@ function BatteryTwin({
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
       <Panel>
-        <PanelHeader title="Battery Twin Specs" kicker="Local deterministic scheduler" />
+        <PanelHeader
+          title="Battery Twin Specs"
+          kicker="Asset archetype with confidence-rated unknowns"
+          right={<AssetToggle selectedAssetSlug={selectedAssetSlug} onChange={setSelectedAssetSlug} />}
+        />
         <div className="grid gap-3 p-3">
+          <div className="rounded border border-cyan-300/20 bg-cyan-300/[0.04] p-3">
+            <div className="text-[13px] font-medium text-zinc-100">{archetype.name}</div>
+            <div className="mt-1 text-[11px] leading-5 text-zinc-500">
+              {formatMw(archetype.power_mw)} / {formatMwh(archetype.contracted_energy_mwh)} ·{" "}
+              {archetype.duration_hours.toFixed(2)}h · RTE {formatPercent(archetype.rte_pct / 100)}
+            </div>
+          </div>
           {(
             [
               ["capacityMwh", "Capacity", "MWh"],
@@ -1236,59 +1408,172 @@ function BatteryTwin({
         </div>
       </Panel>
       <Panel>
-        <PanelHeader title="Twin Output" kicker="Scenario-free v0 dispatch summary" />
-        <div className="grid gap-2 p-3 md:grid-cols-2">
-          <Metric
-            label="Asset Config"
-            value={`${formatMw(twin.maxDischargeMw)} / ${formatMwh(twin.capacityMwh)}`}
-            detail="Power / energy"
-          />
-          <Metric
-            label="Round-trip efficiency"
-            value={formatPercent(twin.roundTripEfficiency)}
-            detail="Applied symmetrically"
-          />
-          <Metric label="Expected value" value={formatEuro(summary.valueEur)} detail="Selected DAM day" />
-          <Metric label="Discharged" value={formatMwh(summary.dischargeMwh)} detail="Delivered to grid" />
+        <PanelHeader title="Capacity Stack" kicker="System layer before cell calibration" />
+        <div className="grid gap-4 p-3">
+          <CapacityStack archetype={archetype} twin={twin} />
+          <div className="grid gap-2 md:grid-cols-2">
+            <Metric
+              label="Asset Config"
+              value={`${formatMw(twin.maxDischargeMw)} / ${formatMwh(twin.capacityMwh)}`}
+              detail="Power / energy"
+            />
+            <Metric
+              label="Round-trip efficiency"
+              value={formatPercent(twin.roundTripEfficiency)}
+              detail="Applied symmetrically"
+            />
+            <Metric label="Expected value" value={formatEuro(summary.valueEur)} detail="Selected DAM day" />
+            <Metric label="Discharged" value={formatMwh(summary.dischargeMwh)} detail="Delivered to grid" />
+          </div>
         </div>
       </Panel>
     </div>
   );
 }
 
+function AssetToggle({
+  selectedAssetSlug,
+  onChange,
+}: {
+  selectedAssetSlug: BatteryArchetypeSlug;
+  onChange: (slug: BatteryArchetypeSlug) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      {(Object.keys(batteryArchetypes) as BatteryArchetypeSlug[]).map((slug) => (
+        <button
+          key={slug}
+          className={`h-7 rounded-sm border px-2 text-[10px] transition ${
+            selectedAssetSlug === slug
+              ? "border-cyan-300/60 bg-cyan-300/15 text-cyan-100"
+              : "border-white/10 bg-[var(--bg-base)] text-zinc-500 hover:text-zinc-200"
+          }`}
+          type="button"
+          onClick={() => onChange(slug)}
+        >
+          {batteryArchetypes[slug].name.split(" ")[0]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CapacityStack({
+  archetype,
+  twin,
+}: {
+  archetype: (typeof batteryArchetypes)[BatteryArchetypeSlug];
+  twin: BatteryTwinConfig;
+}) {
+  const nameplate = archetype.nameplate_energy_mwh;
+  const socWindow = twin.maxSocMwh - twin.minSocMwh;
+  const acDispatchable = socWindow * Math.sqrt(twin.roundTripEfficiency);
+  const rows = [
+    {
+      label: "Nameplate DC Energy",
+      value: nameplate === null ? "unknown" : formatMwh(nameplate),
+      width: nameplate === null ? 100 : Math.min(100, (nameplate / twin.capacityMwh) * 100),
+      confidence: archetype.confidence.nameplate_energy_mwh,
+    },
+    {
+      label: "Contracted Usable",
+      value: formatMwh(twin.capacityMwh),
+      width: 88,
+      confidence: archetype.confidence.contracted_energy_mwh,
+    },
+    {
+      label: `SoC Window (${archetype.soc_min_pct}-${archetype.soc_max_pct}%)`,
+      value: formatMwh(socWindow),
+      width: Math.max(12, (socWindow / twin.capacityMwh) * 88),
+      confidence: archetype.confidence.soc_window,
+    },
+    {
+      label: "Thermal Derate (today)",
+      value: formatMwh(socWindow),
+      width: Math.max(12, (socWindow / twin.capacityMwh) * 88),
+      confidence: "medium",
+    },
+    {
+      label: "Market-Dispatchable AC",
+      value: formatMwh(acDispatchable),
+      width: Math.max(12, (acDispatchable / twin.capacityMwh) * 88),
+      confidence: "medium",
+    },
+  ];
+  return (
+    <div className="grid gap-2">
+      {rows.map((row) => (
+        <div key={row.label} className="grid grid-cols-[11rem_1fr_4.5rem] items-center gap-3 text-[11px]">
+          <div className="truncate text-zinc-400">{row.label}</div>
+          <div className="h-5 border border-white/10 bg-black/25">
+            <div
+              className={`h-full ${confidenceBarClass(row.confidence)}`}
+              style={{ width: `${row.width}%` }}
+              title={`Confidence: ${row.confidence}`}
+            />
+          </div>
+          <div className="mono text-right text-zinc-300">{row.value}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function confidenceBarClass(confidence: string | undefined) {
+  if (confidence === "high") return "bg-[var(--green)]";
+  if (confidence === "medium") return "bg-[var(--cyan)]";
+  if (confidence === "low") return "bg-[var(--amber)]";
+  return "bg-zinc-600";
+}
+
 function ModelLab({
+  artifact,
+  backtest,
   twin,
   summary,
   dispatch,
 }: {
+  artifact: ModelLabArtifact | null;
+  backtest: BacktestArtifact | null;
   twin: BatteryTwinConfig;
   summary: ReturnType<typeof summarizeDispatch>;
   dispatch: DispatchPoint[];
 }) {
+  const topFeatures = Object.entries(artifact?.feature_importance ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4);
   return (
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <ModelCard
-          name="Quantile Scheduler"
+          name="LightGBM Quantile"
+          status={artifact ? "Walk-forward" : "Building"}
+          score={artifact?.overall?.mae_eur_per_mwh?.toFixed(1) ?? "..."}
+          detail={
+            artifact
+              ? `${artifact.fold_count} folds across DAM regime history.`
+              : "Model artifact not written yet."
+          }
+        />
+        <ModelCard
+          name="MILP Dispatch"
           status="Active"
-          score="8.6"
-          detail="Fast deterministic optimizer used for the current schedule."
+          score={String(dispatch.filter((point) => point.action !== "idle").length)}
+          detail="HiGHS MILP with SoC, terminal SoC, power, cycle, and no-simultaneous constraints."
         />
         <ModelCard
-          name="Scarcity Ensemble"
-          status="Candidate"
-          score="7.9"
-          detail="Combines weather, fuel, and market depth signals."
-        />
-        <ModelCard
-          name="Risk-Aware LP"
-          status="Queued"
-          score="7.3"
-          detail="Adds explicit SoC and degradation constraints for stress cases."
+          name="Backtest Capture"
+          status={backtest ? "Cached" : "Building"}
+          score={backtest ? `${Math.round(backtest.results.capture_rate * 100)}%` : "..."}
+          detail={
+            backtest
+              ? `${backtest.start_date} -> ${backtest.end_date}`
+              : "Forecast/perfect-foresight artifact pending."
+          }
         />
       </div>
       <Panel>
-        <PanelHeader title="Model Validation Snapshot" kicker="Current Prometheus control loop" />
+        <PanelHeader title="Model Validation Snapshot" kicker={artifact?.model_id ?? "artifact pending"} />
         <div className="grid gap-2 p-3 md:grid-cols-4">
           <Metric label="Schedule value" value={formatEuro(summary.valueEur)} detail="Current model output" />
           <Metric
@@ -1297,28 +1582,144 @@ function ModelLab({
             detail="Constraint input"
           />
           <Metric
-            label="Action windows"
-            value={String(dispatch.filter((point) => point.action !== "idle").length)}
-            detail="Non-idle MTUs"
+            label="Forecast RMSE"
+            value={
+              artifact?.overall?.rmse_eur_per_mwh
+                ? formatEurPerMwh(artifact.overall.rmse_eur_per_mwh)
+                : "Building"
+            }
+            detail="Walk-forward mean"
           />
-          <Metric label="Fallback path" value="JSON / DuckDB" detail="Market layer mode" />
+          <Metric
+            label="Quantile coverage"
+            value={
+              artifact?.overall?.p10_p90_coverage
+                ? formatPercent(artifact.overall.p10_p90_coverage)
+                : "Building"
+            }
+            detail="p10-p90 realized hit rate"
+          />
+        </div>
+      </Panel>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel>
+          <PanelHeader title="Top Features" kicker={artifact?.feature_set ?? "No artifact yet"} />
+          <div className="grid gap-2 p-3">
+            {topFeatures.length > 0 ? (
+              topFeatures.map(([name, weight]) => (
+                <div key={name} className="grid grid-cols-[9rem_1fr_3rem] items-center gap-3 text-[11px]">
+                  <span className="truncate text-zinc-400">{name}</span>
+                  <div className="h-2 bg-white/10">
+                    <div
+                      className="h-full bg-[var(--cyan)]"
+                      style={{ width: `${Math.max(4, weight * 100)}%` }}
+                    />
+                  </div>
+                  <span className="mono text-right text-zinc-500">{Math.round(weight * 100)}%</span>
+                </div>
+              ))
+            ) : (
+              <div className="p-3 text-[12px] text-zinc-500">Forecast artifact is still building.</div>
+            )}
+          </div>
+        </Panel>
+        <Panel>
+          <PanelHeader title="Backtest Headline" kicker="Forecast-driven vs perfect foresight" />
+          <div className="grid gap-2 p-3 md:grid-cols-2">
+            <Metric
+              label="Capture Rate"
+              value={backtest ? formatPercent(backtest.results.capture_rate) : "Building"}
+              detail="Realized / perfect"
+            />
+            <Metric
+              label="Sharpe"
+              value={backtest ? backtest.results.sharpe.toFixed(2) : "Building"}
+              detail="Daily P&L annualized"
+            />
+            <Metric
+              label="Max Drawdown"
+              value={backtest ? formatEuro(backtest.results.max_drawdown_eur) : "Building"}
+              detail="Forecast-driven path"
+            />
+            <Metric
+              label="Violations"
+              value={backtest ? String(backtest.results.feasibility_violations) : "Building"}
+              detail="Should stay zero"
+            />
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function Scenarios({
+  artifact,
+  dispatch,
+}: {
+  artifact: OptimizerArtifact | null;
+  dispatch: DispatchPoint[];
+}) {
+  const base =
+    artifact?.scenarios.base?.expected_revenue_eur ??
+    dispatch.reduce((total, point) => total + point.estimatedValueEur, 0);
+  const rows = [
+    ["Base case", artifact?.scenarios.base, "Current forecast and balanced risk mode"],
+    ["Gas shock", artifact?.scenarios.gas_shock, "Thermal-marginal scarcity premium"],
+    ["Heatwave", artifact?.scenarios.heatwave, "Power derate, lower RTE, higher auxiliary load"],
+    ["High uncertainty", artifact?.scenarios.high_uncertainty, "Conservative risk mode with wider sigma"],
+  ] as const;
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        {rows.map(([label, scenario, detail]) => (
+          <Metric
+            key={label}
+            label={label}
+            value={scenario ? formatEuro(scenario.expected_revenue_eur) : "Building"}
+            detail={
+              scenario ? `${formatScenarioDelta(scenario.expected_revenue_eur, base)} · ${detail}` : detail
+            }
+          />
+        ))}
+      </div>
+      <Panel>
+        <PanelHeader title="Scenario Feasibility" kicker="Each card is a separate MILP solve" />
+        <div className="dense-scrollbar max-h-[360px] overflow-auto">
+          <table className="w-full table-fixed text-left text-[11px]">
+            <thead className="sticky top-0 bg-[var(--bg-panel)] text-zinc-500 uppercase">
+              <tr>
+                <th className="h-7 px-3">Scenario</th>
+                <th className="h-7 px-3">Solve</th>
+                <th className="h-7 px-3">Cycles</th>
+                <th className="h-7 px-3">Degradation</th>
+                <th className="h-7 px-3">Violations</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(([label, scenario]) => (
+                <tr key={label} className="border-white/5 border-t">
+                  <td className="h-8 px-3 text-zinc-200">{label}</td>
+                  <td className="mono h-8 px-3">{scenario?.solve_status ?? "pending"}</td>
+                  <td className="mono h-8 px-3">{scenario?.cycle_count.toFixed(2) ?? "..."}</td>
+                  <td className="mono h-8 px-3">
+                    {scenario ? formatEuro(scenario.degradation_cost_eur) : "..."}
+                  </td>
+                  <td className="mono h-8 px-3">{scenario?.feasibility_violations.length ?? "..."}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </Panel>
     </div>
   );
 }
 
-function Scenarios({ dispatch }: { dispatch: DispatchPoint[] }) {
-  const base = dispatch.reduce((total, point) => total + point.estimatedValueEur, 0);
-  const stress = base * 0.82;
-  const upside = base * 1.18;
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <Metric label="Base case" value={formatEuro(base)} detail="Current DAM replay" />
-      <Metric label="Gas shock" value={formatEuro(upside)} detail="Higher evening scarcity premium" />
-      <Metric label="Solar flood" value={formatEuro(stress)} detail="More zero-price compression" />
-    </div>
-  );
+function formatScenarioDelta(value: number, base: number) {
+  if (!Number.isFinite(base) || Math.abs(base) < 1) return "base";
+  const delta = (value - base) / Math.abs(base);
+  return `${delta >= 0 ? "+" : ""}${Math.round(delta * 100)}%`;
 }
 
 function DataHealthView({
