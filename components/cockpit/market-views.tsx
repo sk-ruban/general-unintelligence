@@ -117,13 +117,6 @@ export function WeatherView({
         <WeatherSignalGraph points={weatherPoints} />
       </Panel>
       <Panel>
-        <PanelHeader title="Weather Feed" kicker="Open-Meteo Greek 15-minute grid" />
-        <div className="grid gap-2 p-3 md:grid-cols-2">
-          <Metric label="Source" value={weather?.value ?? "Missing"} detail={weather?.detail ?? "No cache"} />
-          <Metric label="Status" value={statusLabel(weather)} detail="Weather cache" />
-        </div>
-      </Panel>
-      <Panel>
         <PanelHeader
           title="Weather-linked Power Signals"
           kicker="Power context for weather-driven dispatch"

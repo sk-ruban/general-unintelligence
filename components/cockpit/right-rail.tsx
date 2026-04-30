@@ -28,22 +28,9 @@ export function RightRail({
   const peakSurplus = batterySignals?.summary.highestCurtailmentWindows[0] ?? null;
   const highestSpread = highestSignalInterval(batterySignals, "spreadRobustness");
   const weather = findSignal(signals, "Weather");
-  const ttf = findSignal(signals, "TTF gas");
-  const eex = findSignal(signals, "EEX");
   const railTitle =
-    view === "dispatch"
-      ? "Dispatch Signals"
-      : view === "market"
-        ? "Market Feeds"
-        : view === "weather"
-          ? "Weather Feed"
-          : "Fuel & Forward Feed";
-  const railSignals =
-    view === "weather"
-      ? [weather ?? railMissingSignal("Weather")]
-      : view === "gas"
-        ? [ttf ?? railMissingSignal("TTF gas"), eex ?? railMissingSignal("EEX power")]
-        : signals;
+    view === "dispatch" ? "Dispatch Signals" : view === "market" ? "Market Feeds" : "Weather Feed";
+  const railSignals = view === "weather" ? [weather ?? railMissingSignal("Weather")] : signals;
   return (
     <aside className="dense-scrollbar flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden border-white/10 border-l bg-[var(--bg-panel)]">
       <RailSection title={railTitle}>
@@ -79,17 +66,9 @@ export function RightRail({
             />
           </>
         ) : null}
-        {view === "gas" ? (
-          <>
-            <KvRow label="TTF source" value={sourceStatusLabel(ttf)} tone={sourceTone(ttf)} />
-            <KvRow label="TTF latest" value={ttf?.value ?? "missing"} tone={sourceTone(ttf)} />
-            <KvRow label="EEX source" value={sourceStatusLabel(eex)} tone={sourceTone(eex)} />
-            <KvRow label="EEX latest" value={eex?.value ?? "missing"} tone={sourceTone(eex)} />
-          </>
-        ) : null}
       </RailSection>
       {view === "dispatch" ? (
-        <RailSection title="Battery Twin Specs">
+        <RailSection title="Battery Assets Specs">
           <KvRow
             label="Asset Config"
             value={`${formatMw(twin.maxDischargeMw)} / ${formatMwh(twin.capacityMwh)}`}

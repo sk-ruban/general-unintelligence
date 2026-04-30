@@ -1,7 +1,7 @@
 "use client";
 
 import { BatteryCharging, BatteryMedium, CirclePause, Plus, RotateCcw, Trash2, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { Panel } from "@/components/ui/panel";
 import { BATTERY_TWIN_TEMPLATES, type BatteryTwinTemplateId } from "@/lib/battery-twin";
 import { formatMw } from "@/lib/format";
@@ -390,9 +390,12 @@ function BatteryControlCard({
   const state = stateVisual(effectiveAction);
   const socScale = Math.max(0.04, Math.min(1, site.socPercent / 100));
   const StateIcon = state.icon;
+  const batterySvgId = site.id.replace(/[^a-zA-Z0-9_-]/g, "-");
 
   return (
-    <div className={`group overflow-hidden rounded-lg border bg-[var(--bg-panel)] ${state.border}`}>
+    <div
+      className={`group overflow-hidden rounded-lg border bg-[var(--bg-panel)] transition-[border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-0.5 ${state.border} ${state.card}`}
+    >
       <div className="flex min-h-[440px] flex-col p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -424,14 +427,28 @@ function BatteryControlCard({
         </div>
 
         <div className="relative my-5 flex flex-1 items-center justify-center">
-          <div className={`absolute inset-x-8 top-1/2 h-px ${state.track}`} />
-          <div className="relative h-[265px] w-[126px] rounded-[28px] border border-zinc-300/20 bg-[linear-gradient(145deg,rgba(250,250,250,0.18),rgba(255,255,255,0.06)_42%,rgba(0,0,0,0.32))] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_28px_80px_rgba(0,0,0,0.38)]">
+          <div
+            className={`control-room-energy-track absolute inset-x-8 top-1/2 h-px ${state.track}`}
+            data-state={effectiveAction}
+          />
+          <div
+            className="control-room-battery-shell relative h-[265px] w-[126px] rounded-[28px] border border-zinc-300/20 bg-[linear-gradient(145deg,rgba(250,250,250,0.18),rgba(255,255,255,0.06)_42%,rgba(0,0,0,0.32))] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),0_28px_80px_rgba(0,0,0,0.38)]"
+            data-state={effectiveAction}
+          >
             <div className="absolute left-1/2 top-[-14px] h-4 w-14 -translate-x-1/2 rounded-t-[16px] border border-zinc-300/20 border-b-0 bg-zinc-100/10" />
             <div className="relative h-full overflow-hidden rounded-[22px] border border-white/10 bg-black/40">
-              <LiquidBatteryFill fillClassName={state.fill} socScale={socScale} />
+              <LiquidBatteryFill
+                action={effectiveAction}
+                gradientId={`battery-liquid-gradient-${batterySvgId}`}
+                liquidColor={state.liquidColor}
+                liquidGlow={state.liquidGlow}
+                maskId={`battery-liquid-mask-${batterySvgId}`}
+                socScale={socScale}
+              />
               <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.18),transparent_24%,transparent_68%,rgba(255,255,255,0.08))]" />
               <div
-                className={`absolute left-1/2 top-1/2 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur ${state.core}`}
+                className={`control-room-battery-core absolute left-1/2 top-1/2 flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border backdrop-blur ${state.core}`}
+                data-state={effectiveAction}
               >
                 <StateIcon className="size-7" />
               </div>
@@ -492,18 +509,85 @@ function BatteryControlCard({
   );
 }
 
-function LiquidBatteryFill({ fillClassName, socScale }: { fillClassName: string; socScale: number }) {
-  const fillHeight = `${Math.round(socScale * 1000) / 10}%`;
+function LiquidBatteryFill({
+  action,
+  gradientId,
+  liquidColor,
+  liquidGlow,
+  maskId,
+  socScale,
+}: {
+  action: DispatchAction;
+  gradientId: string;
+  liquidColor: string;
+  liquidGlow: string;
+  maskId: string;
+  socScale: number;
+}) {
+  const fillTop = Math.round((1 - socScale) * 241);
+  const fillHeight = 241 - fillTop;
+  const waveY = Math.max(16, Math.min(232, fillTop));
 
   return (
-    <div aria-hidden="true" className="absolute inset-0 overflow-hidden">
-      <div
-        className={`absolute inset-x-0 bottom-0 overflow-hidden ${fillClassName}`}
-        style={{ height: fillHeight }}
+    <svg
+      aria-hidden="true"
+      className="control-room-liquid-svg absolute inset-0 h-full w-full"
+      preserveAspectRatio="none"
+      viewBox="0 0 110 241"
+    >
+      <defs>
+        <clipPath id={maskId}>
+          <rect height="241" rx="22" ry="22" width="110" x="0" y="0" />
+        </clipPath>
+        <linearGradient gradientUnits="userSpaceOnUse" id={gradientId} x1="0" x2="0" y1="0" y2="241">
+          <stop offset="0%" stopColor={liquidGlow} />
+          <stop offset="48%" stopColor={liquidColor} />
+          <stop offset="100%" stopColor={liquidColor} stopOpacity="0.62" />
+        </linearGradient>
+      </defs>
+      <g
+        className="control-room-svg-liquid"
+        clipPath={`url(#${maskId})`}
+        data-state={action}
+        style={{ "--battery-wave-y": `${waveY}px` } as CSSProperties}
       >
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),transparent_34%,rgba(0,0,0,0.18))]" />
-      </div>
-    </div>
+        <rect fill={`url(#${gradientId})`} height={fillHeight} width="110" x="0" y={fillTop} />
+        <g className="control-room-svg-wave-stack">
+          <path
+            className="control-room-svg-wave control-room-svg-wave-a"
+            d="M -110 16 C -83 4 -55 4 -28 16 S 27 28 55 16 S 110 4 138 16 S 193 28 220 16 V 241 H -110 Z"
+            fill={liquidGlow}
+            fillOpacity="0.72"
+          />
+          <path
+            className="control-room-svg-wave control-room-svg-wave-b"
+            d="M -110 21 C -78 32 -51 32 -19 21 S 45 10 77 21 S 141 32 173 21 S 235 10 267 21 V 241 H -110 Z"
+            fill={liquidColor}
+            fillOpacity="0.58"
+          />
+        </g>
+        <ellipse
+          className="control-room-svg-meniscus"
+          cx="55"
+          cy={waveY + 5}
+          fill="rgba(255,255,255,0.22)"
+          rx="48"
+          ry="7"
+        />
+        <rect
+          className="control-room-svg-glint"
+          fill="rgba(255,255,255,0.22)"
+          height="260"
+          transform="rotate(12 25 120)"
+          width="13"
+          x="-24"
+          y="-8"
+        />
+        <circle className="control-room-svg-bubble control-room-svg-bubble-a" cx="27" cy="214" r="3.2" />
+        <circle className="control-room-svg-bubble control-room-svg-bubble-b" cx="59" cy="224" r="2.2" />
+        <circle className="control-room-svg-bubble control-room-svg-bubble-c" cx="82" cy="204" r="2.8" />
+      </g>
+    </svg>
   );
 }
 
@@ -646,9 +730,11 @@ function stateVisual(action: DispatchAction) {
       border: "border-green-300/30",
       badge: "border-green-300/20 bg-green-300/10 text-green-200",
       core: "border-green-200/25 bg-green-300/15 text-green-100",
-      fill: "bg-[linear-gradient(180deg,rgba(74,222,128,0.95),rgba(20,184,166,0.72))]",
+      liquidColor: "#14b8a6",
+      liquidGlow: "#86efac",
       text: "text-[var(--green)]",
       track: "bg-[linear-gradient(90deg,transparent,rgba(52,211,153,0.7),transparent)]",
+      card: "shadow-[0_0_0_1px_rgba(52,211,153,0.06),0_24px_72px_rgba(20,184,166,0.08)]",
     };
   }
   if (action === "discharge") {
@@ -657,9 +743,11 @@ function stateVisual(action: DispatchAction) {
       border: "border-amber-300/35",
       badge: "border-amber-300/20 bg-amber-300/10 text-amber-200",
       core: "border-amber-200/25 bg-amber-300/15 text-amber-100",
-      fill: "bg-[linear-gradient(180deg,rgba(251,191,36,0.95),rgba(245,158,11,0.68))]",
+      liquidColor: "#f59e0b",
+      liquidGlow: "#fde68a",
       text: "text-[var(--amber)]",
       track: "bg-[linear-gradient(90deg,transparent,rgba(245,158,11,0.7),transparent)]",
+      card: "shadow-[0_0_0_1px_rgba(245,158,11,0.06),0_24px_72px_rgba(245,158,11,0.08)]",
     };
   }
   return {
@@ -667,9 +755,11 @@ function stateVisual(action: DispatchAction) {
     border: "border-white/10",
     badge: "border-white/10 bg-white/[0.04] text-zinc-300",
     core: "border-white/15 bg-white/[0.06] text-zinc-200",
-    fill: "bg-[linear-gradient(180deg,rgba(161,161,170,0.86),rgba(82,82,91,0.58))]",
+    liquidColor: "#52525b",
+    liquidGlow: "#d4d4d8",
     text: "text-zinc-200",
     track: "bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.18),transparent)]",
+    card: "shadow-[0_18px_54px_rgba(0,0,0,0.18)]",
   };
 }
 

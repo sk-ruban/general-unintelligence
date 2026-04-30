@@ -103,6 +103,230 @@ textarea {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.control-room-energy-track {
+  overflow: hidden;
+}
+
+.control-room-energy-track::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  opacity: 0;
+  transform: translateX(-55%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.92), transparent);
+}
+
+.control-room-energy-track[data-state="charge"]::after {
+  animation: control-room-track-flow 1.45s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  opacity: 0.82;
+}
+
+.control-room-energy-track[data-state="discharge"]::after {
+  animation: control-room-track-flow 1s cubic-bezier(0.22, 1, 0.36, 1) infinite reverse;
+  opacity: 0.72;
+}
+
+.control-room-battery-shell {
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1), filter 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.group:hover .control-room-battery-shell {
+  transform: translateY(-2px);
+}
+
+.control-room-battery-shell[data-state="charge"] {
+  animation: control-room-shell-breathe 2.4s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+.control-room-battery-core {
+  transition: box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1), transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.control-room-battery-core[data-state="charge"] {
+  animation: control-room-core-pulse 1.8s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+.control-room-battery-core[data-state="discharge"] {
+  animation: control-room-core-pulse 1.15s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+
+.control-room-liquid-svg {
+  filter: saturate(1.08);
+}
+
+.control-room-svg-liquid {
+  transform: translateZ(0);
+}
+
+.control-room-svg-wave-stack {
+  transform: translateY(var(--battery-wave-y));
+}
+
+.control-room-svg-wave,
+.control-room-svg-meniscus {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.control-room-svg-wave-a {
+  animation: control-room-svg-wave-a 5s linear infinite;
+}
+
+.control-room-svg-wave-b {
+  animation: control-room-svg-wave-b 3.8s linear infinite reverse;
+}
+
+.control-room-svg-liquid[data-state="discharge"] .control-room-svg-wave-a {
+  animation-duration: 3s;
+}
+
+.control-room-svg-liquid[data-state="discharge"] .control-room-svg-wave-b {
+  animation-duration: 2.25s;
+}
+
+.control-room-svg-meniscus {
+  animation: control-room-svg-meniscus 2.6s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.18));
+}
+
+.control-room-svg-glint {
+  animation: control-room-svg-glint 3.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  opacity: 0;
+}
+
+.control-room-svg-bubble {
+  animation: control-room-svg-bubble 3.4s ease-out infinite;
+  fill: rgba(255, 255, 255, 0.45);
+  opacity: 0;
+}
+
+.control-room-svg-bubble-b {
+  animation-delay: 900ms;
+}
+
+.control-room-svg-bubble-c {
+  animation-delay: 1.7s;
+}
+
+.control-room-svg-liquid[data-state="discharge"] .control-room-svg-bubble {
+  animation-duration: 2.2s;
+  animation-direction: reverse;
+}
+
+@keyframes control-room-track-flow {
+  0% {
+    transform: translateX(-65%);
+  }
+  100% {
+    transform: translateX(65%);
+  }
+}
+
+@keyframes control-room-shell-breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 rgba(52, 211, 153, 0));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px rgba(52, 211, 153, 0.18));
+  }
+}
+
+@keyframes control-room-svg-wave-a {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(110px);
+  }
+}
+
+@keyframes control-room-svg-wave-b {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-110px);
+  }
+}
+
+@keyframes control-room-svg-meniscus {
+  0%,
+  100% {
+    transform: translateY(0) scaleX(1);
+  }
+  50% {
+    transform: translateY(1.5px) scaleX(1.08);
+  }
+}
+
+@keyframes control-room-svg-glint {
+  0%,
+  42% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  56% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(170px);
+  }
+}
+
+@keyframes control-room-core-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(255, 255, 255, 0);
+  }
+  50% {
+    box-shadow: 0 0 26px rgba(255, 255, 255, 0.12);
+  }
+}
+
+@keyframes control-room-svg-bubble {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.65);
+  }
+  16% {
+    opacity: 0.58;
+  }
+  72% {
+    opacity: 0.34;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-92px) scale(1.15);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control-room-energy-track::after,
+  .control-room-battery-shell,
+  .control-room-battery-core,
+  .control-room-svg-wave,
+  .control-room-svg-meniscus,
+  .control-room-svg-glint,
+  .control-room-svg-bubble,
+  .control-room-energy-track[data-state="charge"]::after,
+  .control-room-energy-track[data-state="discharge"]::after,
+  .control-room-battery-shell[data-state="charge"],
+  .control-room-svg-liquid[data-state="discharge"] .control-room-svg-wave-a,
+  .control-room-svg-liquid[data-state="discharge"] .control-room-svg-wave-b,
+  .control-room-svg-liquid[data-state="discharge"] .control-room-svg-bubble,
+  .control-room-battery-core[data-state="charge"],
+  .control-room-battery-core[data-state="discharge"] {
+    animation: none;
+    transition-duration: 0.01ms;
+  }
+
+  .group:hover .control-room-battery-shell {
+    transform: none;
+  }
+}
+
 .dark {
   --sidebar: hsl(240 5.9% 10%);
   --sidebar-foreground: hsl(240 4.8% 95.9%);

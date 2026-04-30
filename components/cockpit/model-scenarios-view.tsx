@@ -1,5 +1,16 @@
-import { BarChart3, BrainCircuit, GitCompareArrows, Target } from "lucide-react";
+"use client";
+
+import { BarChart3, BrainCircuit, GitCompareArrows, ServerCog, Target, Upload } from "lucide-react";
+import { useState } from "react";
 import { Panel, PanelHeader } from "@/components/ui/panel";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { summarizeDispatch } from "@/lib/battery-dispatch";
 import { formatEuro, formatEurPerMwh, formatMwh, formatPercent } from "@/lib/format";
 import { formatMarketIntervalWindow } from "@/lib/market-time";
@@ -7,6 +18,52 @@ import { buildScenarioExecutiveSummary, type ScenarioComparison } from "@/lib/sc
 import type { BatteryTwinConfig, DispatchPoint } from "@/lib/types";
 import { Metric, PageActionButton, PageIntro, Tag, type Tone, toneClass } from "./shared";
 import type { BacktestArtifact, ModelLabArtifact, OptimizerArtifact } from "./use-cockpit-state";
+
+type ProprietaryModelDraft = {
+  modelName: string;
+  ownerCompany: string;
+  modelType: string;
+  endpointRoute: string;
+  authMethod: string;
+  credentialRef: string;
+  inputSchema: string;
+  outputFields: string;
+  backtestWindow: string;
+  validationGoal: string;
+  notes: string;
+};
+
+const MODEL_TYPES = [
+  "Price forecast",
+  "Dispatch optimizer",
+  "Risk overlay",
+  "Hybrid forecast + optimizer",
+] as const;
+
+const AUTH_METHODS = ["API key ref", "OAuth client", "mTLS", "Private network", "Signed upload"] as const;
+
+const VALIDATION_GOALS = [
+  "Revenue capture vs incumbent",
+  "Forecast error reduction",
+  "Risk-adjusted dispatch",
+  "Constraint feasibility",
+] as const;
+
+const DEFAULT_IMPORT_MODEL_DRAFT: ProprietaryModelDraft = {
+  modelName: "Proprietary DAM optimizer",
+  ownerCompany: "Trading analytics",
+  modelType: "Hybrid forecast + optimizer",
+  endpointRoute: "https://models.company.example/v1/dam-dispatch or s3://model-imports/dam/",
+  authMethod: "API key ref",
+  credentialRef: "vault://energy-models/dam-optimizer-prod",
+  inputSchema:
+    "DAM prices, 96 MTU index, battery constraints, SoC limits, forecast quantiles, weather/fuel context.",
+  outputFields:
+    "charge_mw, discharge_mw, expected_revenue_eur, soc_percent, p10_price, p50_price, p90_price.",
+  backtestWindow: "2024-12-17 -> 2026-04-30",
+  validationGoal: "Revenue capture vs incumbent",
+  notes: "Run shadow validation first. Do not promote until feasibility violations are zero.",
+};
 
 export function ModelLab({
   artifact,
@@ -21,9 +78,19 @@ export function ModelLab({
   summary: ReturnType<typeof summarizeDispatch>;
   dispatch: DispatchPoint[];
 }) {
+  const [importModelOpen, setImportModelOpen] = useState(false);
+  const [importDraft, setImportDraft] = useState<ProprietaryModelDraft>(DEFAULT_IMPORT_MODEL_DRAFT);
   const topFeatures = Object.entries(artifact?.feature_importance ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
+
+  function updateImportDraft<Key extends keyof ProprietaryModelDraft>(
+    key: Key,
+    value: ProprietaryModelDraft[Key],
+  ) {
+    setImportDraft((current) => ({ ...current, [key]: value }));
+  }
+
   return (
     <div className="grid gap-4">
       <PageIntro
@@ -32,6 +99,10 @@ export function ModelLab({
         description="Validates the forecast and optimizer artifacts, showing revenue capture, error bands, feature drivers, and the evidence behind the schedule."
         actions={
           <>
+            <PageActionButton onClick={() => setImportModelOpen(true)}>
+              <Upload className="size-3.5" />
+              Import model
+            </PageActionButton>
             <PageActionButton onClick={() => scrollToCockpitSection("model-validation")}>
               <BrainCircuit className="size-3.5" />
               Validation
@@ -43,6 +114,12 @@ export function ModelLab({
             <Tag tone={artifact ? "green" : "amber"}>{artifact ? "Artifact ready" : "Building"}</Tag>
           </>
         }
+      />
+      <ImportModelSheet
+        draft={importDraft}
+        open={importModelOpen}
+        onDraftChange={updateImportDraft}
+        onOpenChange={setImportModelOpen}
       />
       <div className="grid gap-3 md:grid-cols-4">
         <ModelCard
@@ -202,6 +279,234 @@ export function ModelLab({
         </Panel>
       </div>
     </div>
+  );
+}
+
+function ImportModelSheet({
+  draft,
+  onDraftChange,
+  onOpenChange,
+  open,
+}: {
+  draft: ProprietaryModelDraft;
+  onDraftChange: <Key extends keyof ProprietaryModelDraft>(
+    key: Key,
+    value: ProprietaryModelDraft[Key],
+  ) => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        className="w-full gap-0 border-white/10 bg-[var(--bg-panel)] text-zinc-100 sm:max-w-3xl"
+        showCloseButton
+      >
+        <SheetHeader className="border-b border-white/10 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <SheetTitle className="text-zinc-50">Import proprietary model</SheetTitle>
+              <SheetDescription className="mt-1 text-[12px] leading-5 text-zinc-500">
+                Register a company model for local shadow testing against cockpit backtests and optimizer
+                validation.
+              </SheetDescription>
+            </div>
+            <Tag tone="outline">Local draft</Tag>
+          </div>
+        </SheetHeader>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4">
+          <div className="grid gap-3 rounded-md border border-cyan-300/20 bg-cyan-300/[0.04] p-3 md:grid-cols-[1fr_auto]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[12px] font-medium text-cyan-100">
+                <ServerCog className="size-3.5" />
+                Shadow validation profile
+              </div>
+              <div className="mt-1 text-[11px] leading-4 text-zinc-500">
+                The imported model is treated as a test artifact until its outputs match the 96-MTU dispatch
+                contract and clear feasibility checks.
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-500 md:w-56">
+              <ModelImportFact label="Mode" value="Test only" />
+              <ModelImportFact label="Backend" value="Not wired" />
+            </div>
+          </div>
+
+          <div className="grid gap-3 border border-white/10 bg-[var(--bg-base)] p-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <ImportField
+                label="Model name"
+                value={draft.modelName}
+                onChange={(value) => onDraftChange("modelName", value)}
+              />
+              <ImportField
+                label="Owner / company"
+                value={draft.ownerCompany}
+                onChange={(value) => onDraftChange("ownerCompany", value)}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <ImportSelect
+                label="Model type"
+                options={MODEL_TYPES}
+                value={draft.modelType}
+                onChange={(value) => onDraftChange("modelType", value)}
+              />
+              <ImportField
+                label="Endpoint or upload route"
+                value={draft.endpointRoute}
+                onChange={(value) => onDraftChange("endpointRoute", value)}
+              />
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <ImportSelect
+                label="Auth method"
+                options={AUTH_METHODS}
+                value={draft.authMethod}
+                onChange={(value) => onDraftChange("authMethod", value)}
+              />
+              <ImportField
+                label="Credential reference"
+                value={draft.credentialRef}
+                onChange={(value) => onDraftChange("credentialRef", value)}
+              />
+            </div>
+
+            <ImportTextArea
+              label="Input schema expectations"
+              value={draft.inputSchema}
+              onChange={(value) => onDraftChange("inputSchema", value)}
+            />
+            <ImportTextArea
+              label="Output fields"
+              value={draft.outputFields}
+              onChange={(value) => onDraftChange("outputFields", value)}
+            />
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <ImportField
+                label="Backtest window"
+                value={draft.backtestWindow}
+                onChange={(value) => onDraftChange("backtestWindow", value)}
+              />
+              <ImportSelect
+                label="Validation goal"
+                options={VALIDATION_GOALS}
+                value={draft.validationGoal}
+                onChange={(value) => onDraftChange("validationGoal", value)}
+              />
+            </div>
+
+            <ImportTextArea
+              label="Notes"
+              value={draft.notes}
+              onChange={(value) => onDraftChange("notes", value)}
+            />
+          </div>
+        </div>
+        <SheetFooter className="border-t border-white/10 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              className="inline-flex h-8 items-center justify-center rounded-md border border-white/10 px-3 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.04]"
+              type="button"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-cyan-300/25 bg-cyan-300/10 px-3 text-[12px] font-medium text-cyan-100 hover:bg-cyan-300/15"
+              type="button"
+              onClick={() => onOpenChange(false)}
+            >
+              <Upload className="size-3.5" />
+              Save import draft
+            </button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ModelImportFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-white/10 bg-black/20 p-2">
+      <div className="text-[9px] font-medium text-zinc-500 uppercase tracking-[0.08em]">{label}</div>
+      <div className="mt-1 truncate text-[11px] text-zinc-200">{value}</div>
+    </div>
+  );
+}
+
+function ImportField({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">{label}</span>
+      <input
+        className="h-8 border border-white/10 bg-black/20 px-2 text-[12px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/40"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
+  );
+}
+
+function ImportSelect({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  options: readonly string[];
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">{label}</span>
+      <select
+        className="h-8 border border-white/10 bg-black/20 px-2 text-[12px] text-zinc-100 outline-none focus:border-cyan-300/40"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function ImportTextArea({
+  label,
+  onChange,
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">{label}</span>
+      <textarea
+        className="min-h-20 resize-y border border-white/10 bg-black/20 px-2 py-2 text-[12px] leading-5 text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-300/40"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
+    </label>
   );
 }
 

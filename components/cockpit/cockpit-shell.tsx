@@ -6,7 +6,6 @@ import {
   Box,
   CloudSun,
   Database,
-  Flame,
   Gauge,
   MapIcon,
   Search,
@@ -36,12 +35,11 @@ const nav: {
   icon: ComponentType<{ className?: string }>;
 }[] = [
   { id: "control", label: "Control Room", icon: Gauge },
+  { id: "portfolio", label: "Grid Flow", icon: MapIcon },
   { id: "dispatch", label: "Dispatch Plan", icon: Zap },
   { id: "market", label: "Market", icon: Activity },
-  { id: "portfolio", label: "Grid Flow", icon: MapIcon },
   { id: "weather", label: "Weather", icon: CloudSun },
-  { id: "gas", label: "Gas", icon: Flame },
-  { id: "twin", label: "Battery Twin", icon: BatteryCharging },
+  { id: "twin", label: "Asset Builder", icon: BatteryCharging },
   { id: "model", label: "Model Lab", icon: Box },
   { id: "scenarios", label: "Scenario Planner", icon: BarChart3 },
   { id: "health", label: "Data Sources", icon: Database },
@@ -127,7 +125,13 @@ function TenantFooter() {
   );
 }
 
-export function TopBar({ selectedDay }: { selectedDay: string }) {
+export function TopBar({
+  activeBatteryName,
+  selectedDay,
+}: {
+  activeBatteryName: string;
+  selectedDay: string;
+}) {
   const dayLabel = selectedDay || "loading";
 
   return (
@@ -140,6 +144,10 @@ export function TopBar({ selectedDay }: { selectedDay: string }) {
         <div className="mono hidden truncate text-[11px] text-zinc-500 md:block">
           Latest HEnEx DAM {dayLabel} | Europe/Athens
         </div>
+      </div>
+      <div className="mono hidden shrink-0 items-center rounded border border-white/10 bg-[var(--bg-raised)] px-2.5 py-1 text-[11px] text-zinc-500 md:flex">
+        Dispatch asset
+        <span className="ml-1 max-w-[260px] truncate text-zinc-100">{activeBatteryName}</span>
       </div>
     </header>
   );

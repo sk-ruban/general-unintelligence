@@ -66,7 +66,7 @@ export function BatteryTwin({
   return (
     <div className="grid gap-4">
       <PageIntro
-        kicker="Battery Twin"
+        kicker="Battery Assets"
         title="Asset Constraint Builder"
         description="Defines the selected battery template, SoC corridor, power limits, and open supplier specs that constrain every optimization result."
         actions={
@@ -83,7 +83,7 @@ export function BatteryTwin({
         }
       />
       <Panel>
-        <PanelHeader title="Battery Twin Builder" kicker="Operator asset templates" />
+        <PanelHeader title="Battery Assets Builder" kicker="Operator asset templates" />
         <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-5">
           {BATTERY_TWIN_TEMPLATES.map((template) => (
             <button

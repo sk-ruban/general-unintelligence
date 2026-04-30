@@ -14,51 +14,29 @@ import type {
   BatterySignalInterval,
   BatterySignalResponse,
   BatteryTwinConfig,
-  DataHealth,
   DispatchAction,
   DispatchPoint,
-  ExternalSignalPanel,
 } from "@/lib/types";
 import { PageIntro } from "./shared";
 
 type Tone = "cyan" | "green" | "amber" | "red" | "blue" | "violet" | "outline";
 
-type CurveStats = {
-  totalPoints: number;
-  buyPoints: number;
-  sellPoints: number;
-  buyMwh: number | null;
-  sellMwh: number | null;
-  lowPrice: number | null;
-  highPrice: number | null;
-  lowQuantity: number | null;
-  highQuantity: number | null;
-};
-
 export function DispatchPlan({
-  curveStats,
   dispatch,
   summary,
-  signals,
   batterySignals,
   decisionConfidence,
   feasibilityChecks,
   activeBatteryTwin,
-  health,
-  curveHealth,
   portfolioSummary,
   twin,
 }: {
-  curveStats: CurveStats;
   dispatch: DispatchPoint[];
   summary: ReturnType<typeof summarizeDispatch>;
-  signals: ExternalSignalPanel[];
   batterySignals: BatterySignalResponse | null;
   decisionConfidence: DecisionConfidenceCard[];
   feasibilityChecks: TwinFeasibilityCheck[];
   activeBatteryTwin: BatteryTwinModel;
-  health: DataHealth | null;
-  curveHealth: DataHealth | null;
   portfolioSummary: PortfolioSummary;
   twin: BatteryTwinConfig;
 }) {
@@ -138,15 +116,8 @@ export function DispatchPlan({
         </div>
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-4">
         <FeasibilityChecklist checks={feasibilityChecks} />
-        <DecisionInputStack
-          batterySignals={batterySignals}
-          curveHealth={curveHealth}
-          curveStats={curveStats}
-          health={health}
-          signals={signals}
-        />
       </div>
 
       <div className="grid overflow-hidden rounded border border-white/10 bg-white/10 md:grid-cols-5">
@@ -244,9 +215,11 @@ function DecisionHeader({
 }
 
 function DecisionConfidenceStrip({ cards }: { cards: DecisionConfidenceCard[] }) {
+  const visibleCards = cards.filter((card) => card.label !== "Market Fragility");
+
   return (
-    <div className="grid gap-2 md:grid-cols-5">
-      {cards.map((card) => (
+    <div className="grid gap-2 md:grid-cols-4">
+      {visibleCards.map((card) => (
         <Panel key={card.id} className="p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -334,84 +307,6 @@ function EvidenceCard({
         <span className="text-[11px] text-zinc-500">{footerLabel}</span>
         <Tag tone={footerTone}>{footerTag}</Tag>
       </div>
-    </div>
-  );
-}
-
-function DecisionInputStack({
-  batterySignals,
-  curveHealth,
-  curveStats,
-  health,
-  signals,
-}: {
-  batterySignals: BatterySignalResponse | null;
-  curveHealth: DataHealth | null;
-  curveStats: CurveStats;
-  health: DataHealth | null;
-  signals: ExternalSignalPanel[];
-}) {
-  const weather = findSignal(signals, "Weather");
-  const ttf = findSignal(signals, "TTF");
-  const eex = findSignal(signals, "EEX");
-  return (
-    <Panel>
-      <PanelHeader title="Decision Inputs" kicker="Observed, cached, and model-derived sources" />
-      <div className="grid gap-2 p-3 md:grid-cols-2">
-        <InputStackCard
-          detail={`${health?.firstMarketDate ?? "n/a"} -> ${health?.lastMarketDate ?? "n/a"}`}
-          label="HEnEx DAM"
-          status={health ? marketModeLabel(health.mode) : "Missing"}
-          tone={health ? "green" : "red"}
-          value={`${health?.priceRows ?? 0} rows`}
-        />
-        <InputStackCard
-          detail={curveHealth ? `${curveHealth.curveRows} derived rows` : "Static fallback if unavailable"}
-          label="HEnEx Curves"
-          status={curveStats.totalPoints > 0 ? "Loaded" : "Fallback"}
-          tone={curveStats.totalPoints > 0 ? "green" : "amber"}
-          value={`${curveStats.totalPoints} points`}
-        />
-        <InputStackCard
-          detail={weather?.detail ?? "No weather cache"}
-          label="Open-Meteo"
-          status={statusLabel(weather)}
-          tone={weather?.status === "missing" ? "red" : "cyan"}
-          value={weather?.value ?? "Missing"}
-        />
-        <InputStackCard
-          detail={`${ttf?.value ?? "TTF n/a"} · ${eex?.value ?? "EEX n/a"}`}
-          label="Fuel / Forward Context"
-          status={ttf || eex ? "Context" : "Missing"}
-          tone={ttf || eex ? "blue" : "red"}
-          value={batterySignals ? "Scored" : "Context"}
-        />
-      </div>
-    </Panel>
-  );
-}
-
-function InputStackCard({
-  detail,
-  label,
-  status,
-  tone,
-  value,
-}: {
-  detail: string;
-  label: string;
-  status: string;
-  tone: Tone;
-  value: string;
-}) {
-  return (
-    <div className="border border-white/10 bg-black/20 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.05em]">{label}</div>
-        <Tag tone={tone}>{status}</Tag>
-      </div>
-      <div className="mono mt-1 break-words text-[14px] leading-5 text-zinc-100">{value}</div>
-      <div className="mt-1 text-[11px] leading-4 text-zinc-500">{detail}</div>
     </div>
   );
 }
@@ -672,21 +567,6 @@ function signalIntervalClass(interval: BatterySignalInterval) {
     return "bg-[var(--green)] opacity-85";
   }
   return "bg-[var(--cyan)] opacity-80";
-}
-
-function marketModeLabel(mode: DataHealth["mode"] | undefined) {
-  if (mode === "convex") return "Convex";
-  if (mode === "convex-http") return "Convex HTTP";
-  if (mode === "json-fallback") return "JSON fallback";
-  return "loading";
-}
-
-function findSignal(signals: ExternalSignalPanel[], label: string) {
-  return signals.find((signal) => signal.label.toLowerCase().includes(label.toLowerCase()));
-}
-
-function statusLabel(signal: ExternalSignalPanel | undefined) {
-  return signal?.status === "live" ? "Live" : signal?.status === "cached" ? "Cached" : "Missing";
 }
 
 function tagClass(tone: Tone) {

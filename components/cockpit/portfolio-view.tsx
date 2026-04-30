@@ -30,8 +30,8 @@ export function PortfolioView({
     <div className="grid gap-4">
       <PageIntro
         kicker="Grid Flow"
-        title="Greek Asset Map"
-        description="Maps fleet assets onto the Greek system, showing the grid nodes, flow pressure, and site details operators should inspect before trusting a dispatch recommendation."
+        title="Asset Map"
+        description="Maps fleet assets onto the system, showing the grid nodes, flow pressure, and site details operators should inspect before trusting a dispatch recommendation."
         actions={
           <>
             <PageActionButton
@@ -47,7 +47,7 @@ export function PortfolioView({
       />
       <div className="grid gap-4 xl:grid-cols-[1.45fr_0.95fr]">
         <Panel>
-          <PanelHeader title="Greek Grid Flow Manager" />
+          <PanelHeader title="Grid Flow Manager" />
           <GridFlowMap
             flows={gridFlows}
             nodes={gridNodes}

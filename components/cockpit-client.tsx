@@ -15,7 +15,7 @@ import {
 } from "@/components/cockpit/cockpit-views";
 import { ControlRoom } from "@/components/cockpit/control-room";
 import { DispatchPlan } from "@/components/cockpit/dispatch-plan";
-import { GasView, MarketIntelligence, WeatherView } from "@/components/cockpit/market-views";
+import { MarketIntelligence, WeatherView } from "@/components/cockpit/market-views";
 import { useCockpitState } from "@/components/cockpit/use-cockpit-state";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
@@ -73,7 +73,7 @@ export function CockpitClient() {
         view={view}
         selectedDay={selectedDay}
       />
-    ) : view === "market" || view === "weather" || view === "gas" ? (
+    ) : view === "market" || view === "weather" ? (
       <RightRail batterySignals={batterySignals} signals={signals} twin={twin} view={view} />
     ) : null;
   const showRightRail = rightRail !== null;
@@ -92,7 +92,7 @@ export function CockpitClient() {
       >
         <AppSidebar activeView={view} onViewChange={setView} />
         <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <TopBar selectedDay={selectedDay} />
+          <TopBar activeBatteryName={activeBatteryTwin.profile.name} selectedDay={selectedDay} />
           <PanelGroup direction="horizontal" className="min-h-0 flex-1">
             <ResizePanel
               className="min-h-0 overflow-hidden"
@@ -110,16 +110,12 @@ export function CockpitClient() {
                 ) : null}
                 {view === "dispatch" ? (
                   <DispatchPlan
-                    curveStats={curveStats}
                     dispatch={dispatch}
                     summary={summary}
-                    signals={signals}
                     batterySignals={batterySignals}
                     decisionConfidence={decisionConfidence}
                     feasibilityChecks={feasibilityChecks}
                     activeBatteryTwin={activeBatteryTwin}
-                    health={health}
-                    curveHealth={curveHealth}
                     portfolioSummary={portfolio.summary}
                     twin={twin}
                   />
@@ -154,7 +150,6 @@ export function CockpitClient() {
                 {view === "weather" ? (
                   <WeatherView batterySignals={batterySignals} signals={signals} />
                 ) : null}
-                {view === "gas" ? <GasView signals={signals} /> : null}
                 {view === "twin" ? (
                   <BatteryTwin
                     activeTwin={activeBatteryTwin}

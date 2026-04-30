@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Battery Intelligence OS - Hackathon Preamble</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;700&family=Manrope:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* ===========================================
+         CSS CUSTOM PROPERTIES: OPERATOR COCKPIT THEME
+         Change these variables to restyle the entire deck.
+         =========================================== */
+      :root {
+        --bg-primary: #050506;
+        --bg-panel: #090b0e;
+        --bg-raised: #101419;
+        --line-muted: rgba(255, 255, 255, 0.12);
+        --line-bright: rgba(103, 232, 249, 0.52);
+        --text-primary: #e6edf3;
+        --text-secondary: #9ba6b2;
+        --text-faint: #5e6874;
+        --accent-cyan: #67e8f9;
+        --accent-green: #34d399;
+        --accent-amber: #f59e0b;
+        --accent-red: #f87171;
+        --accent-blue: #60a5fa;
+        --accent-violet: #a78bfa;
+        --accent-glow: rgba(103, 232, 249, 0.22);
+        --font-display: "Archivo Black", sans-serif;
+        --font-body: "Manrope", sans-serif;
+        --font-mono: "IBM Plex Mono", monospace;
+        --title-size: clamp(2rem, 6vw, 5.6rem);
+        --h2-size: clamp(1.45rem, 4vw, 3.5rem);
+        --h3-size: clamp(1rem, 2vw, 1.65rem);
+        --body-size: clamp(0.78rem, 1.35vw, 1.22rem);
+        --small-size: clamp(0.62rem, 0.92vw, 0.86rem);
+        --slide-padding: clamp(1rem, 4vw, 4.5rem);
+        --content-gap: clamp(0.7rem, 2.1vw, 2.4rem);
+        --element-gap: clamp(0.38rem, 1vw, 1rem);
+        --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+        --duration-normal: 0.62s;
+      }
+
+      /* ===========================================
+         RESET
+         =========================================== */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* ===========================================
+         VIEWPORT FITTING: MANDATORY BASE STYLES
+         Include this ENTIRE file in every presentation.
+         These styles ensure slides fit exactly in the viewport.
+         =========================================== */
+      html, body {
+          height: 100%;
+          overflow-x: hidden;
+      }
+
+      html {
+          scroll-snap-type: y mandatory;
+          scroll-behavior: smooth;
+      }
+
+      .slide {
+          width: 100vw;
+          height: 100vh;
+          height: 100dvh;
+          overflow: hidden;
+          scroll-snap-align: start;
+          display: flex;
+          flex-direction: column;
+          position: relative;
+      }
+
+      .slide-content {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          max-height: 100%;
+          overflow: hidden;
+          padding: var(--slide-padding);
+      }
+
+      .card, .container, .content-box {
+          max-width: min(90vw, 1000px);
+          max-height: min(80vh, 700px);
+      }
+
+      .feature-list, .bullet-list {
+          gap: clamp(0.4rem, 1vh, 1rem);
+      }
+
+      .feature-list li, .bullet-list li {
+          font-size: var(--body-size);
+          line-height: 1.4;
+      }
+
+      .grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+          gap: clamp(0.5rem, 1.5vw, 1rem);
+      }
+
+      img, .image-container {
+          max-width: 100%;
+          max-height: min(50vh, 400px);
+          object-fit: contain;
+      }
+
+      @media (max-height: 700px) {
+          :root {
+              --slide-padding: clamp(0.75rem, 3vw, 2rem);
+              --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+              --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+              --h2-size: clamp(1rem, 3vw, 1.75rem);
+          }
+      }
+
+      @media (max-height: 600px) {
+          :root {
+              --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+              --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+              --title-size: clamp(1.1rem, 4vw, 2rem);
+              --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+          }
+
+          .nav-dots, .keyboard-hint, .decorative {
+              display: none;
+          }
+      }
+
+      @media (max-height: 500px) {
+          :root {
+              --slide-padding: clamp(0.4rem, 2vw, 1rem);
+              --title-size: clamp(1rem, 3.5vw, 1.5rem);
+              --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+              --body-size: clamp(0.65rem, 1vw, 0.85rem);
+          }
+      }
+
+      @media (max-width: 600px) {
+          :root {
+              --title-size: clamp(1.25rem, 7vw, 2.5rem);
+          }
+
+          .grid {
+              grid-template-columns: 1fr;
+          }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+              animation-duration: 0.01ms !important;
+              transition-duration: 0.2s !important;
+          }
+
+          html {
+              scroll-behavior: auto;
+          }
+      }
+
+      /* ===========================================
+         GLOBAL PRESENTATION SURFACE
+         =========================================== */
+      body {
+        font-family: var(--font-body);
+        color: var(--text-primary);
+        background: var(--bg-primary);
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(circle at 18% 16%, rgba(103, 232, 249, 0.12), transparent 28%),
+          radial-gradient(circle at 86% 78%, rgba(245, 158, 11, 0.10), transparent 30%),
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: auto, auto, clamp(2rem, 4vw, 4rem) clamp(2rem, 4vw, 4rem), clamp(2rem, 4vw, 4rem) clamp(2rem, 4vw, 4rem);
+        opacity: 0.9;
+        z-index: 0;
+      }
+
+      .slide::after {
+        content: "";
+        position: absolute;
+        inset: auto 0 0 0;
+        height: clamp(0.18rem, 0.5vh, 0.38rem);
+        background: linear-gradient(90deg, var(--accent-cyan), transparent 42%, var(--accent-amber));
+        opacity: 0.45;
+      }
+
+      .slide-content {
+        position: relative;
+        z-index: 1;
+      }
+
+      .progress-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: clamp(0.14rem, 0.35vh, 0.28rem);
+        width: 0%;
+        background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green), var(--accent-amber));
+        z-index: 1000;
+        transition: width 0.25s ease;
+      }
+
+      .nav-dots {
+        position: fixed;
+        right: clamp(0.45rem, 1.2vw, 1rem);
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 900;
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.28rem, 0.8vh, 0.55rem);
+      }
+
+      .nav-dot {
+        width: clamp(0.44rem, 0.72vw, 0.72rem);
+        height: clamp(0.44rem, 0.72vw, 0.72rem);
+        border: 1px solid var(--line-muted);
+        background: rgba(255, 255, 255, 0.08);
+        cursor: pointer;
+      }
+
+      .nav-dot.active {
+        background: var(--accent-cyan);
+        box-shadow: 0 0 clamp(0.5rem, 1.4vw, 1.1rem) var(--accent-glow);
+      }
+
+      /* ===========================================
+         TYPOGRAPHY
+         =========================================== */
+      h1,
+      h2 {
+        font-family: var(--font-display);
+        line-height: 0.96;
+        letter-spacing: 0;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        font-size: var(--title-size);
+        max-width: min(92vw, 1180px);
+      }
+
+      h2 {
+        font-size: var(--h2-size);
+        max-width: min(92vw, 1320px);
+      }
+
+      h3 {
+        font-family: var(--font-body);
+        font-size: var(--h3-size);
+        line-height: 1.1;
+      }
+
+      p {
+        font-size: var(--body-size);
+        line-height: 1.45;
+        color: var(--text-secondary);
+        max-width: min(86vw, 1160px);
+      }
+
+      .kicker,
+      .mono,
+      .source {
+        font-family: var(--font-mono);
+        letter-spacing: 0.02em;
+      }
+
+      .kicker {
+        color: var(--accent-cyan);
+        font-size: var(--small-size);
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .source {
+        position: absolute;
+        left: var(--slide-padding);
+        right: var(--slide-padding);
+        bottom: clamp(0.75rem, 2vh, 1.8rem);
+        color: var(--text-faint);
+        font-size: clamp(0.48rem, 0.78vw, 0.72rem);
+        z-index: 2;
+      }
+
+      /* ===========================================
+         ANIMATIONS
+         =========================================== */
+      .reveal {
+        opacity: 0;
+        transform: translateY(clamp(1rem, 4vh, 2rem));
+        transition:
+          opacity var(--duration-normal) var(--ease-out-expo),
+          transform var(--duration-normal) var(--ease-out-expo);
+      }
+
+      .slide.visible .reveal {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .reveal:nth-child(1) { transition-delay: 0.08s; }
+      .reveal:nth-child(2) { transition-delay: 0.16s; }
+      .reveal:nth-child(3) { transition-delay: 0.24s; }
+      .reveal:nth-child(4) { transition-delay: 0.32s; }
+      .reveal:nth-child(5) { transition-delay: 0.40s; }
+      .reveal:nth-child(6) { transition-delay: 0.48s; }
+
+      .pulse {
+        animation: pulse 2.8s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.45; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.03); }
+      }
+
+      /* ===========================================
+         LAYOUT COMPONENTS
+         =========================================== */
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
+        gap: clamp(1rem, 4vw, 4rem);
+        align-items: center;
+        min-height: 0;
+      }
+
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: var(--content-gap);
+        min-height: 0;
+      }
+
+      .tight-stack {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.45rem, 1.2vw, 1.05rem);
+        min-height: 0;
+      }
+
+      .instrument {
+        border: 1px solid var(--line-muted);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+          var(--bg-panel);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+        padding: clamp(0.7rem, 1.8vw, 1.65rem);
+        min-height: 0;
+      }
+
+      .metric-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: clamp(0.55rem, 1.2vw, 1rem);
+      }
+
+      .metric-value {
+        font-family: var(--font-mono);
+        font-size: clamp(1.35rem, 4.5vw, 4rem);
+        font-weight: 700;
+        line-height: 0.95;
+      }
+
+      .metric-label {
+        font-family: var(--font-mono);
+        font-size: var(--small-size);
+        color: var(--text-secondary);
+        text-transform: uppercase;
+      }
+
+      .operator-strip {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: clamp(0.12rem, 0.35vw, 0.32rem);
+        align-items: stretch;
+      }
+
+      .mtu {
+        min-height: clamp(1.4rem, 4.6vh, 3.2rem);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .charge { background: linear-gradient(180deg, rgba(52, 211, 153, 0.78), rgba(52, 211, 153, 0.28)); }
+      .discharge { background: linear-gradient(180deg, rgba(245, 158, 11, 0.9), rgba(245, 158, 11, 0.34)); }
+      .idle { background: rgba(255, 255, 255, 0.06); }
+
+      .open-list {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.55rem, 1.4vw, 1.2rem);
+        min-height: 0;
+      }
+
+      .open-item {
+        display: grid;
+        grid-template-columns: clamp(0.28rem, 0.7vw, 0.55rem) minmax(0, 1fr);
+        gap: clamp(0.6rem, 1.3vw, 1.2rem);
+        align-items: start;
+      }
+
+      .open-mark {
+        height: clamp(2rem, 5vh, 3.6rem);
+        background: var(--accent-cyan);
+      }
+
+      .open-item h3 {
+        color: var(--text-primary);
+      }
+
+      .open-item p {
+        font-size: clamp(0.72rem, 1.16vw, 1.02rem);
+      }
+
+      .pipeline {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: clamp(0.42rem, 1vw, 0.9rem);
+      }
+
+      .stage {
+        min-height: clamp(7rem, 24vh, 15rem);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .stage-number {
+        font-family: var(--font-mono);
+        color: var(--accent-cyan);
+        font-size: var(--small-size);
+        font-weight: 700;
+      }
+
+      .stage h3 {
+        font-size: clamp(0.95rem, 1.55vw, 1.35rem);
+      }
+
+      .stage p {
+        font-size: clamp(0.62rem, 0.95vw, 0.82rem);
+      }
+
+      .canvas-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: clamp(0.8rem, 2vw, 2rem);
+        min-height: 0;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+        gap: clamp(0.5rem, 1.2vw, 1rem);
+        min-height: 0;
+      }
+
+      .feature-card {
+        display: flex;
+        flex-direction: column;
+        gap: clamp(0.3rem, 0.7vw, 0.7rem);
+      }
+
+      .feature-card h3 {
+        font-size: clamp(0.95rem, 1.65vw, 1.42rem);
+      }
+
+      .feature-card p {
+        font-size: clamp(0.62rem, 0.98vw, 0.86rem);
+      }
+
+      .priority {
+        font-family: var(--font-mono);
+        color: var(--accent-green);
+        font-size: var(--small-size);
+        font-weight: 700;
+      }
+
+      .chart-bars {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        align-items: end;
+        gap: clamp(0.55rem, 1.2vw, 1rem);
+        min-height: clamp(12rem, 42vh, 27rem);
+      }
+
+      .bar-wrap {
+        display: flex;
+        flex-direction: column;
+        justify-content: end;
+        gap: clamp(0.3rem, 0.8vw, 0.7rem);
+        height: 100%;
+      }
+
+      .bar {
+        min-height: clamp(1.1rem, 3vh, 2.1rem);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: linear-gradient(180deg, var(--accent-cyan), rgba(103, 232, 249, 0.18));
+      }
+
+      .bar-label,
+      .bar-value {
+        font-family: var(--font-mono);
+        font-size: clamp(0.55rem, 0.82vw, 0.75rem);
+        color: var(--text-secondary);
+      }
+
+      .bar-value {
+        color: var(--text-primary);
+        font-weight: 700;
+      }
+
+      .quote {
+        font-family: var(--font-display);
+        font-size: clamp(1.6rem, 5.2vw, 5rem);
+        line-height: 1;
+        text-transform: uppercase;
+        max-width: min(92vw, 1380px);
+      }
+
+      .accent-cyan { color: var(--accent-cyan); }
+      .accent-green { color: var(--accent-green); }
+      .accent-amber { color: var(--accent-amber); }
+      .accent-red { color: var(--accent-red); }
+      .accent-blue { color: var(--accent-blue); }
+      .accent-violet { color: var(--accent-violet); }
+
+      /* ===========================================
+         SLIDE-SPECIFIC COMPOSITION
+         =========================================== */
+      .title-slide .slide-content {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+        gap: clamp(1rem, 4vw, 4.5rem);
+        align-items: center;
+      }
+
+      .action-tape {
+        display: flex;
+        flex-direction: column;
+        justify-content: end;
+        gap: clamp(0.9rem, 2vw, 1.8rem);
+        min-height: clamp(18rem, 58vh, 42rem);
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: clamp(0.45rem, 1vw, 0.9rem);
+        font-family: var(--font-mono);
+        color: var(--text-secondary);
+        font-size: var(--small-size);
+      }
+
+      .legend span::before {
+        content: "";
+        display: inline-block;
+        width: clamp(0.5rem, 1vw, 0.8rem);
+        height: clamp(0.5rem, 1vw, 0.8rem);
+        margin-right: clamp(0.25rem, 0.7vw, 0.5rem);
+        vertical-align: middle;
+        background: var(--accent-cyan);
+      }
+
+      .legend .green::before { background: var(--accent-green); }
+      .legend .amber::before { background: var(--accent-amber); }
+      .legend .zinc::before { background: rgba(255, 255, 255, 0.18); }
+
+      .problem-slide .quote {
+        color: var(--text-primary);
+      }
+
+      .landing-actions {
+        display: grid;
+        gap: clamp(0.55rem, 1.4vw, 1.2rem);
+      }
+
+      /* ===========================================
+         SMALL VIEWPORT ADAPTATION
+         =========================================== */
+      @media (max-width: 900px) {
+        .split,
+        .title-slide .slide-content {
+          grid-template-columns: 1fr;
+        }
+
+        .metric-grid,
+        .canvas-grid,
+        .feature-grid,
+        .pipeline {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .feature-grid {
+          grid-template-rows: auto;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .metric-grid,
+        .canvas-grid,
+        .feature-grid,
+        .pipeline {
+          grid-template-columns: 1fr;
+        }
+
+        .source {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="progress-bar"></div>
+    <nav class="nav-dots" aria-label="Slide navigation"></nav>
+
+    <!-- ===========================================
+         SLIDE 01: COVER
+         =========================================== -->
+    <section class="slide title-slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">Odyceo hackathon / Greek BESS market</div>
+          <h1 class="reveal">Battery Intelligence OS</h1>
+          <p class="reveal">
+            A control cockpit for battery operators entering volatile, data-scarce power markets.
+          </p>
+          <p class="reveal">
+            Not another price forecast. A platform that turns fragmented market, grid, weather, fuel, and asset signals into feasible charge, discharge, or idle decisions.
+          </p>
+        </div>
+        <div class="action-tape instrument reveal">
+          <div class="operator-strip" aria-label="Operator action tape preview">
+            <div class="mtu idle"></div><div class="mtu idle"></div><div class="mtu idle"></div><div class="mtu idle"></div>
+            <div class="mtu charge"></div><div class="mtu charge"></div><div class="mtu charge"></div><div class="mtu charge"></div>
+            <div class="mtu idle"></div><div class="mtu idle"></div><div class="mtu idle"></div><div class="mtu idle"></div>
+            <div class="mtu idle"></div><div class="mtu idle"></div><div class="mtu discharge"></div><div class="mtu discharge"></div>
+            <div class="mtu discharge"></div><div class="mtu discharge"></div><div class="mtu idle"></div><div class="mtu idle"></div>
+            <div class="mtu charge"></div><div class="mtu charge"></div><div class="mtu idle"></div><div class="mtu discharge"></div>
+          </div>
+          <div class="legend">
+            <span class="green">Charge</span>
+            <span class="amber">Discharge</span>
+            <span class="zinc">Idle</span>
+          </div>
+          <div class="mono">96 MTUs / EUR-MWh / Europe-Athens</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 02: MARKET SETUP
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">1 / Market setup</div>
+          <h2 class="reveal">The operators are arriving before the playbook is mature</h2>
+          <p class="reveal">
+            Greece is moving from battery projects on paper to batteries participating in HEnEx markets. METLEN-Karatzis is the headline scale project, but the operator field is broader.
+          </p>
+          <div class="split reveal">
+            <div class="instrument">
+              <div class="chart-bars" aria-label="Greek BESS scale markers">
+                <div class="bar-wrap">
+                  <div class="bar-value">16.7 MW</div>
+                  <div class="bar" style="height: 8%"></div>
+                  <div class="bar-label">First live systems</div>
+                </div>
+                <div class="bar-wrap">
+                  <div class="bar-value">~300 MW</div>
+                  <div class="bar" style="height: 28%"></div>
+                  <div class="bar-label">Ready to energise</div>
+                </div>
+                <div class="bar-wrap">
+                  <div class="bar-value">1.1 GW</div>
+                  <div class="bar" style="height: 100%"></div>
+                  <div class="bar-label">2026 target</div>
+                </div>
+                <div class="bar-wrap">
+                  <div class="bar-value">790 MWh</div>
+                  <div class="bar" style="height: 72%"></div>
+                  <div class="bar-label">METLEN-Karatzis</div>
+                </div>
+              </div>
+            </div>
+            <div class="open-list">
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-cyan)"></div><div><h3>METLEN-Karatzis Thessaly</h3><p>330 MW / 790 MWh planned standalone BESS, with METLEN operating and managing energy through M Renewables.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-green)"></div><div><h3>First operating systems</h3><p>Petra and Dokos entered day-ahead and intraday market test operation in April 2026.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-amber)"></div><div><h3>Wider operator wave</h3><p>PPC Renewables, HELLENiQ Renewables, Faria, Principia, Motor Oil/MORE, and others are part of the emerging field.</p></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="source">Sources: METLEN press release, 9 Oct 2025; Balkan Green Energy News, 2 Apr 2026; Renewables Now, 1 Apr 2026.</div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 03: GREECE INFLECTION
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">2 / Greece inflection</div>
+          <h2 class="reveal">The first batteries are a new operating regime, not just new assets</h2>
+          <div class="metric-grid reveal">
+            <div class="instrument">
+              <div class="metric-label">Physical entry</div>
+              <div class="metric-value accent-green">April 2026</div>
+              <p>First standalone BESS began trial charging and discharging through HEnEx.</p>
+            </div>
+            <div class="instrument">
+              <div class="metric-label">Decision intervals per day</div>
+              <div class="metric-value accent-cyan">96</div>
+              <p>EU day-ahead markets moved to 15-minute MTUs from delivery day 1 Oct 2025.</p>
+            </div>
+            <div class="instrument">
+              <div class="metric-label">Mature local BESS history</div>
+              <div class="metric-value accent-amber">scarce</div>
+              <p>Operators need decisions before years of local asset telemetry exist.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="source">Sources: HEnEx announcement, 1 Oct 2025; European Commission, 1 Oct 2025; Renewables Now, 1 Apr 2026.</div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 04: DATA SCARCITY
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="split">
+          <div class="stack">
+            <div class="kicker reveal">3 / Data scarcity</div>
+            <h2 class="reveal">The core defect is missing operating history</h2>
+            <p class="reveal">
+              A pure optimizer assumes clean inputs. A pure model wants history. Greek standalone batteries have neither at the asset level yet.
+            </p>
+          </div>
+          <div class="open-list reveal">
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-red)"></div><div><h3>Scarce battery telemetry</h3><p>No long local record of SoC paths, degradation, BMS behavior, downtime, or dispatch response.</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-amber)"></div><div><h3>Fragmented external signals</h3><p>HEnEx prices, IPTO/ENTSO-E data, weather, gas, carbon, and shock context live in different formats.</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-blue)"></div><div><h3>Uncertain asset specs</h3><p>Headline MW/MWh does not equal usable AC dispatchable energy.</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-violet)"></div><div><h3>Changing market rules</h3><p>Trial operation, imbalance exposure, 15-minute MTUs, and support obligations change what a profitable plan means.</p></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 05: PROBLEM STATEMENT
+         =========================================== -->
+    <section class="slide problem-slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">4 / Problem statement</div>
+          <div class="quote reveal">How should a battery operator schedule tomorrow when the market is volatile, the asset is new, and the data is incomplete?</div>
+          <div class="metric-grid reveal">
+            <div class="instrument"><div class="metric-label">Must be</div><div class="metric-value accent-green">feasible</div><p>SoC, power, efficiency, reserve, and degradation constraints respected.</p></div>
+            <div class="instrument"><div class="metric-label">Must be</div><div class="metric-value accent-cyan">explainable</div><p>The operator sees signals, assumptions, caveats, and confidence.</p></div>
+            <div class="instrument"><div class="metric-label">Must be</div><div class="metric-value accent-amber">actionable</div><p>Charge, discharge, or idle decisions by interval, not a chart gallery.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 06: PRODUCT REIMAGINATION
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">5 / Reimagined product</div>
+          <h2 class="reveal">Beyond an optimisation model: a decision cockpit for battery operators</h2>
+          <p class="reveal">
+            The model is one engine in a broader platform: data provenance, signal intelligence, a battery twin, scenario planning, and business insight.
+          </p>
+          <div class="pipeline reveal">
+            <div class="instrument stage"><span class="stage-number">01</span><h3>Data Fabric</h3><p>HEnEx, IPTO, weather, TTF, EEX, carbon, asset specs.</p></div>
+            <div class="instrument stage"><span class="stage-number">02</span><h3>Signal Engine</h3><p>Flexibility value, fragility, curtailment fit, scarcity.</p></div>
+            <div class="instrument stage"><span class="stage-number">03</span><h3>Battery Twin</h3><p>SoC, duration, efficiency, capacity stack, degradation.</p></div>
+            <div class="instrument stage"><span class="stage-number">04</span><h3>Model Lab</h3><p>Baselines, GBMs, ensembles, error and decision scoring.</p></div>
+            <div class="instrument stage"><span class="stage-number">05</span><h3>Scheduler</h3><p>96-MTU charge/discharge/idle plan under constraints.</p></div>
+            <div class="instrument stage"><span class="stage-number">06</span><h3>Cockpit</h3><p>Operator plan, risks, provenance, scenarios, BI.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="source">Repo basis: Battery Intelligence OS product vision, branding guide, control room and scheduler design docs.</div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 07: VALUE PROPOSITION CANVAS
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">6 / Value proposition canvas</div>
+          <h2 class="reveal">The cockpit maps directly to operator jobs, pains, and gains</h2>
+          <div class="canvas-grid reveal">
+            <div class="open-list">
+              <div class="kicker">Customer jobs</div>
+              <div class="open-item"><div class="open-mark"></div><div><h3>Schedule tomorrow</h3><p>Produce a feasible 96-interval charge/discharge/idle plan.</p></div></div>
+              <div class="open-item"><div class="open-mark"></div><div><h3>Explain decisions</h3><p>Show why each action was chosen and what assumption it depends on.</p></div></div>
+              <div class="open-item"><div class="open-mark"></div><div><h3>Plan the business</h3><p>Understand regime shifts, duration choices, and market opportunity.</p></div></div>
+            </div>
+            <div class="open-list">
+              <div class="kicker accent-red">Pains</div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-red)"></div><div><h3>No asset history</h3><p>New batteries lack mature local operating data.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-red)"></div><div><h3>Black-box risk</h3><p>A profitable schedule can violate constraints or rely on fragile spreads.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-red)"></div><div><h3>Source sprawl</h3><p>Signals are scattered across market files, APIs, PDFs, weather, and fuel data.</p></div></div>
+            </div>
+            <div class="open-list">
+              <div class="kicker accent-green">Gain creators</div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-green)"></div><div><h3>Trust layer</h3><p>Confidence, data health, and feasibility checks sit beside the recommendation.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-green)"></div><div><h3>Scenario layer</h3><p>Gas shock, solar surplus, and duration comparisons expose robustness.</p></div></div>
+              <div class="open-item"><div class="open-mark" style="background: var(--accent-green)"></div><div><h3>BI layer</h3><p>The same data supports scheduling, planning, reporting, and insight gathering.</p></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 08: FEATURE SCOPE
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="stack">
+          <div class="kicker reveal">7 / Feature scope</div>
+          <h2 class="reveal">What we need to implement for the hackathon value proposition</h2>
+          <div class="feature-grid reveal">
+            <div class="instrument feature-card"><span class="priority">P0</span><h3>Control Room</h3><p>Recommended schedule, 96-MTU action tape, SoC path, expected value, degradation cost, feasibility proof.</p></div>
+            <div class="instrument feature-card"><span class="priority">P0</span><h3>Data Health</h3><p>Source freshness, missingness, live/cached/demo labels, provenance near the recommendation.</p></div>
+            <div class="instrument feature-card"><span class="priority">P0</span><h3>Battery Twin</h3><p>Operator-configurable MW/MWh, duration, efficiency, SoC buffers, capacity stack, confidence levels.</p></div>
+            <div class="instrument feature-card"><span class="priority" style="color: var(--accent-amber)">P1</span><h3>Signal Engine</h3><p>Spread coverage, fragility, curtailment fit, battery stress, data confidence, reason codes.</p></div>
+            <div class="instrument feature-card"><span class="priority" style="color: var(--accent-amber)">P1</span><h3>Model Lab</h3><p>Baseline vs ML model comparison scored by decision quality, not just forecast error.</p></div>
+            <div class="instrument feature-card"><span class="priority" style="color: var(--accent-amber)">P1</span><h3>Scenario Planner</h3><p>Base case, gas shock, solar surplus, 2h vs 4h battery comparison, business-insight exports.</p></div>
+          </div>
+        </div>
+      </div>
+      <div class="source">Feature scope derived from product vision, decision-confidence strip, scenario comparison, battery twin, and scheduler design docs.</div>
+    </section>
+
+    <!-- ===========================================
+         SLIDE 09: LANDING
+         =========================================== -->
+    <section class="slide">
+      <div class="slide-content">
+        <div class="split">
+          <div class="stack">
+            <div class="kicker reveal">Landing</div>
+            <h2 class="reveal">Kpler-style intelligence, specialized into executable battery decisions</h2>
+            <p class="reveal">
+              The wedge is Greece. The durable product is a platform for battery operators to schedule, plan, audit, and learn under uncertainty.
+            </p>
+            <p class="reveal">
+              Data scarcity is not a blocker if the platform makes assumptions explicit, constraints real, and decisions explainable.
+            </p>
+          </div>
+          <div class="landing-actions reveal">
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-green)"></div><div><h3>Operate</h3><p>What should the battery do tomorrow?</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-cyan)"></div><div><h3>Understand</h3><p>Which signals drove the recommendation?</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-amber)"></div><div><h3>Stress-test</h3><p>Does the plan survive plausible market regimes?</p></div></div>
+            <div class="open-item"><div class="open-mark" style="background: var(--accent-violet)"></div><div><h3>Plan</h3><p>What does this imply for asset strategy and business intelligence?</p></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script>
+      /* ===========================================
+         SLIDE PRESENTATION CONTROLLER
+         Keyboard, wheel, touch, progress, dots, reveal animations.
+         =========================================== */
+      class SlidePresentation {
+        constructor() {
+          this.slides = Array.from(document.querySelectorAll(".slide"));
+          this.currentSlide = 0;
+          this.navDotsContainer = document.querySelector(".nav-dots");
+          this.progressBar = document.querySelector(".progress-bar");
+          this.isWheelLocked = false;
+          this.touchStartY = 0;
+          this.setupIntersectionObserver();
+          this.setupKeyboardNav();
+          this.setupTouchNav();
+          this.setupWheelNav();
+          this.setupNavDots();
+          this.updateProgress();
+          this.goToSlide(0, false);
+        }
+
+        setupIntersectionObserver() {
+          const observer = new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                  entry.target.classList.add("visible");
+                  this.currentSlide = this.slides.indexOf(entry.target);
+                  this.updateProgress();
+                  this.updateDots();
+                }
+              });
+            },
+            { threshold: 0.58 }
+          );
+
+          this.slides.forEach((slide) => observer.observe(slide));
+        }
+
+        setupKeyboardNav() {
+          window.addEventListener("keydown", (event) => {
+            const nextKeys = ["ArrowDown", "ArrowRight", " ", "PageDown"];
+            const prevKeys = ["ArrowUp", "ArrowLeft", "PageUp"];
+            if (nextKeys.includes(event.key)) {
+              event.preventDefault();
+              this.goToSlide(this.currentSlide + 1);
+            }
+            if (prevKeys.includes(event.key)) {
+              event.preventDefault();
+              this.goToSlide(this.currentSlide - 1);
+            }
+            if (event.key === "Home") this.goToSlide(0);
+            if (event.key === "End") this.goToSlide(this.slides.length - 1);
+          });
+        }
+
+        setupTouchNav() {
+          window.addEventListener("touchstart", (event) => {
+            this.touchStartY = event.touches[0].clientY;
+          }, { passive: true });
+
+          window.addEventListener("touchend", (event) => {
+            const delta = this.touchStartY - event.changedTouches[0].clientY;
+            if (Math.abs(delta) > 45) this.goToSlide(this.currentSlide + (delta > 0 ? 1 : -1));
+          }, { passive: true });
+        }
+
+        setupWheelNav() {
+          window.addEventListener("wheel", (event) => {
+            if (this.isWheelLocked || Math.abs(event.deltaY) < 18) return;
+            this.isWheelLocked = true;
+            this.goToSlide(this.currentSlide + (event.deltaY > 0 ? 1 : -1));
+            setTimeout(() => {
+              this.isWheelLocked = false;
+            }, 520);
+          }, { passive: true });
+        }
+
+        setupNavDots() {
+          this.navDotsContainer.innerHTML = "";
+          this.slides.forEach((_, index) => {
+            const button = document.createElement("button");
+            button.className = "nav-dot";
+            button.type = "button";
+            button.setAttribute("aria-label", `Go to slide ${index + 1}`);
+            button.addEventListener("click", () => this.goToSlide(index));
+            this.navDotsContainer.appendChild(button);
+          });
+          this.updateDots();
+        }
+
+        goToSlide(index, smooth = true) {
+          const clamped = Math.max(0, Math.min(this.slides.length - 1, index));
+          this.currentSlide = clamped;
+          this.slides[clamped].scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+          this.updateProgress();
+          this.updateDots();
+        }
+
+        updateProgress() {
+          const max = Math.max(1, this.slides.length - 1);
+          const pct = (this.currentSlide / max) * 100;
+          this.progressBar.style.width = `${pct}%`;
+        }
+
+        updateDots() {
+          const dots = this.navDotsContainer.querySelectorAll(".nav-dot");
+          dots.forEach((dot, index) => {
+            dot.classList.toggle("active", index === this.currentSlide);
+          });
+        }
+      }
+
+      new SlidePresentation();
+    </script>
+  </body>
+</html>

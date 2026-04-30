@@ -4,7 +4,6 @@ export type View =
   | "portfolio"
   | "market"
   | "weather"
-  | "gas"
   | "twin"
   | "model"
   | "scenarios"

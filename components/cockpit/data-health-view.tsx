@@ -93,7 +93,6 @@ type AuthMethod =
   | "Manual approval";
 
 type CredentialStatus = "Not needed" | "Not provided" | "Pending approval" | "Vault reference set" | "Tested";
-type SourceFlow = "manual" | "agent";
 
 const ADDED_SOURCE_STORAGE_KEY = "odyceo:data-sources:configured";
 const AUTH_METHODS: AuthMethod[] = [
@@ -112,6 +111,26 @@ const CREDENTIAL_STATUSES: CredentialStatus[] = [
   "Pending approval",
   "Vault reference set",
   "Tested",
+];
+const AGENT_STEPS = [
+  {
+    label: "Discover",
+    detail: "Search approved public, vendor, and customer-provided source paths.",
+  },
+  {
+    label: "Classify",
+    detail: "Identify access method, owner, coverage, cadence, and schema shape.",
+  },
+  {
+    label: "Scaffold",
+    detail: "Draft a source adapter contract and queue human approval before credentials.",
+  },
+];
+const AGENT_DEFAULTS = [
+  { label: "Agent", value: "Procurement scout" },
+  { label: "Run mode", value: "Human-gated draft" },
+  { label: "Secrets", value: "References only" },
+  { label: "Output", value: "Source card + adapter plan" },
 ];
 
 const DEFAULT_TEMPLATE: SourceTemplate = {
@@ -231,8 +250,8 @@ export function DataSourcesView({
 }) {
   const [addedSource, setAddedSource] = useState<AddedSource | null>(null);
   const [storedSourceLoaded, setStoredSourceLoaded] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [sourceFlow, setSourceFlow] = useState<SourceFlow>("manual");
+  const [addSourceOpen, setAddSourceOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   const baseSources = useMemo(
     () => sourceCards({ health, curveHealth, signals, batterySignals, days, curveDays }),
     [health, curveHealth, signals, batterySignals, days, curveDays],
@@ -272,11 +291,6 @@ export function DataSourcesView({
     }
   }, [addedSource, storedSourceLoaded]);
 
-  function openSourceSheet(flow: SourceFlow) {
-    setSourceFlow(flow);
-    setModalOpen(true);
-  }
-
   return (
     <div className="grid gap-4">
       <PageIntro
@@ -285,8 +299,8 @@ export function DataSourcesView({
         description="Each source records provenance, access method, auth requirements, schema mapping, and the battery decision it supports. Operators can connect known feeds directly or ask an AI procurement agent to discover, classify, and scaffold a new source adapter."
         actions={
           <>
-            <SourceActionButton icon="plus" label="Add source" onClick={() => openSourceSheet("manual")} />
-            <SourceActionButton icon="bot" label="AI procurement" onClick={() => openSourceSheet("agent")} />
+            <SourceActionButton icon="plus" label="Add source" onClick={() => setAddSourceOpen(true)} />
+            <SourceActionButton icon="bot" label="AI procurement" onClick={() => setAgentOpen(true)} />
             <Tag tone={availableCount === sources.length ? "green" : "amber"}>
               {availableCount} / {sources.length} available
             </Tag>
@@ -312,13 +326,22 @@ export function DataSourcesView({
         ))}
       </div>
       <AddSourceSheet
-        open={modalOpen}
-        flow={sourceFlow}
-        onOpenChange={setModalOpen}
+        open={addSourceOpen}
+        onOpenChange={setAddSourceOpen}
         configuredSource={addedSource}
         onSave={(source) => {
           setAddedSource(source);
-          setModalOpen(false);
+          setAddSourceOpen(false);
+        }}
+        onRemove={() => setAddedSource(null)}
+      />
+      <AgentProcurementSheet
+        open={agentOpen}
+        onOpenChange={setAgentOpen}
+        configuredSource={addedSource}
+        onSave={(source) => {
+          setAddedSource(source);
+          setAgentOpen(false);
         }}
         onRemove={() => setAddedSource(null)}
       />
@@ -474,7 +497,7 @@ function sourceCards({
       useCase: curveDays.length > 0 ? "Available in the Market curve view" : "Waiting for curve data",
     },
     signalSource("Open-Meteo weather", weather, "Weather tab and weather-linked dispatch proxies"),
-    signalSource("ICE TTF gas", ttf, "Gas tab fuel-cost context"),
+    signalSource("ICE TTF gas", ttf, "Fuel-cost context"),
     signalSource("EEX Greek power forwards", eex, "Forward context beside market and gas views"),
     {
       id: "battery-signal-intervals",
@@ -551,33 +574,33 @@ function addedSourceCard(source: AddedSource): SourceCard {
 
 function AddSourceSheet({
   configuredSource,
-  flow,
   onOpenChange,
   onRemove,
   onSave,
   open,
 }: {
   configuredSource: AddedSource | null;
-  flow: SourceFlow;
   onOpenChange: (open: boolean) => void;
   onRemove: () => void;
   onSave: (source: AddedSource) => void;
   open: boolean;
 }) {
-  const [templateId, setTemplateId] = useState(configuredSource?.templateId ?? DEFAULT_TEMPLATE.id);
+  const manualSource = configuredSource?.procurementMode === "AI procurement agent" ? null : configuredSource;
+  const [templateId, setTemplateId] = useState(manualSource?.templateId ?? DEFAULT_TEMPLATE.id);
   const selectedTemplate = templateById(templateId);
-  const [draft, setDraft] = useState(() => sourceDraft(configuredSource, selectedTemplate));
+  const [draft, setDraft] = useState(() => sourceDraft(manualSource, selectedTemplate));
 
   useEffect(() => {
     if (!open) return;
-    const template = configuredSource ? templateById(configuredSource.templateId) : selectedTemplate;
+    const source = configuredSource?.procurementMode === "AI procurement agent" ? null : configuredSource;
+    const template = source ? templateById(source.templateId) : selectedTemplate;
     setTemplateId(template.id);
-    setDraft(sourceForFlow(configuredSource, template, flow));
-  }, [configuredSource, flow, open, selectedTemplate]);
+    setDraft(sourceDraft(source, template));
+  }, [configuredSource, open, selectedTemplate]);
 
   function selectTemplate(nextTemplate: SourceTemplate) {
     setTemplateId(nextTemplate.id);
-    setDraft(sourceForFlow(null, nextTemplate, flow));
+    setDraft(sourceDraft(null, nextTemplate));
   }
 
   return (
@@ -587,13 +610,10 @@ function AddSourceSheet({
         showCloseButton
       >
         <SheetHeader className="border-b border-white/10 p-4">
-          <SheetTitle className="text-zinc-50">
-            {flow === "agent" ? "AI procurement agent" : "Add data source"}
-          </SheetTitle>
+          <SheetTitle className="text-zinc-50">Add data source</SheetTitle>
           <SheetDescription className="text-[12px] leading-5 text-zinc-500">
-            {flow === "agent"
-              ? "Describe the source the agent should discover, then capture the expected access, approval, and adapter contract."
-              : "Connect a known endpoint, file, portal, upload, or vendor feed with a realistic access and credential contract."}
+            Connect a known endpoint, file, portal, upload, or vendor feed with a realistic access and
+            credential contract.
           </SheetDescription>
         </SheetHeader>
         <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4">
@@ -631,9 +651,7 @@ function AddSourceSheet({
               onChange={(name) => setDraft((current) => ({ ...current, name }))}
             />
             <Field
-              label={
-                flow === "agent" ? "Agent procurement brief" : "Source endpoint / portal / file location"
-              }
+              label="Source endpoint / portal / file location"
               value={draft.sourceLocation}
               onChange={(sourceLocation) => setDraft((current) => ({ ...current, sourceLocation }))}
             />
@@ -679,7 +697,7 @@ function AddSourceSheet({
             <button
               className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
               type="button"
-              disabled={!configuredSource}
+              disabled={!manualSource}
               onClick={onRemove}
             >
               Remove configured source
@@ -689,8 +707,212 @@ function AddSourceSheet({
               type="button"
               onClick={() => onSave({ ...draft, templateId, auth: authSummary(draft) })}
             >
-              {flow === "agent" ? <Bot className="size-3.5" /> : <Upload className="size-3.5" />}
-              {flow === "agent" ? "Queue procurement task" : "Save source"}
+              <Upload className="size-3.5" />
+              Save source
+            </button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function AgentProcurementSheet({
+  configuredSource,
+  onOpenChange,
+  onRemove,
+  onSave,
+  open,
+}: {
+  configuredSource: AddedSource | null;
+  onOpenChange: (open: boolean) => void;
+  onRemove: () => void;
+  onSave: (source: AddedSource) => void;
+  open: boolean;
+}) {
+  const agentSource = configuredSource?.procurementMode === "AI procurement agent" ? configuredSource : null;
+  const [templateId, setTemplateId] = useState(agentSource?.templateId ?? "market-feed");
+  const selectedTemplate = templateById(templateId);
+  const [draft, setDraft] = useState(() => sourceForAgent(agentSource, selectedTemplate));
+
+  useEffect(() => {
+    if (!open) return;
+    const source = configuredSource?.procurementMode === "AI procurement agent" ? configuredSource : null;
+    const template = source ? templateById(source.templateId) : selectedTemplate;
+    setTemplateId(template.id);
+    setDraft(sourceForAgent(source, template));
+  }, [configuredSource, open, selectedTemplate]);
+
+  function selectTemplate(nextTemplate: SourceTemplate) {
+    setTemplateId(nextTemplate.id);
+    setDraft(sourceForAgent(null, nextTemplate));
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        className="w-full gap-0 border-violet-300/20 bg-[var(--bg-panel)] text-zinc-100 sm:max-w-3xl"
+        showCloseButton
+      >
+        <SheetHeader className="border-b border-violet-300/20 bg-violet-300/[0.03] p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border border-violet-300/25 bg-violet-300/10 text-violet-100">
+              <Bot className="size-4" />
+            </div>
+            <div>
+              <SheetTitle className="text-zinc-50">AI procurement agent</SheetTitle>
+              <SheetDescription className="mt-1 text-[12px] leading-5 text-zinc-500">
+                Queue a local planning task that describes how an agent would find, classify, and scaffold a
+                new source. No backend job or credential exchange is started.
+              </SheetDescription>
+            </div>
+          </div>
+        </SheetHeader>
+        <div className="grid min-h-0 flex-1 gap-4 overflow-auto p-4 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="grid content-start gap-3">
+            <div className="border border-violet-300/20 bg-violet-300/[0.04] p-3">
+              <div className="text-[10px] font-medium text-violet-200 uppercase tracking-[0.08em]">
+                Agent runbook
+              </div>
+              <div className="mt-3 grid gap-2">
+                {AGENT_STEPS.map((step, index) => (
+                  <div key={step.label} className="grid grid-cols-[1.75rem_1fr] gap-2">
+                    <div className="flex size-7 items-center justify-center rounded-full border border-violet-300/25 bg-black/20 text-[11px] text-violet-100">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <div className="text-[12px] font-medium text-zinc-100">{step.label}</div>
+                      <div className="mt-0.5 text-[11px] leading-4 text-zinc-500">{step.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {AGENT_DEFAULTS.map((item) => (
+                <div key={item.label} className="border border-white/10 bg-[var(--bg-base)] p-2">
+                  <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">
+                    {item.label}
+                  </div>
+                  <div className="mt-1 text-[12px] text-zinc-200">{item.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="border border-white/10 bg-[var(--bg-base)] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">
+                    Cockpit preview
+                  </div>
+                  <div className="mt-1 text-[11px] leading-4 text-zinc-500">
+                    Saving this adds one locally configured source card marked as an AI procurement task, with
+                    the adapter plan and approval boundary visible to operators.
+                  </div>
+                </div>
+                <Tag tone="blue">Local only</Tag>
+              </div>
+              <div className="mt-3 border border-violet-300/20 bg-violet-300/[0.04] p-3">
+                <div className="text-[10px] font-medium text-violet-200 uppercase tracking-[0.08em]">
+                  {selectedTemplate.family} · AI procurement agent
+                </div>
+                <div className="mt-1 text-[13px] font-medium text-zinc-100">{draft.name}</div>
+                <div className="mt-2 line-clamp-3 text-[11px] leading-4 text-zinc-500">
+                  {draft.sourceLocation}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="grid content-start gap-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {SOURCE_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  className={`border p-3 text-left ${
+                    template.id === templateId
+                      ? "border-violet-300/45 bg-violet-300/10"
+                      : "border-white/10 bg-[var(--bg-base)] hover:bg-white/[0.04]"
+                  }`}
+                  type="button"
+                  onClick={() => selectTemplate(template)}
+                >
+                  <div className="flex items-start gap-2">
+                    <SourceIcon family={template.family} />
+                    <div className="min-w-0">
+                      <div className="truncate text-[12px] font-medium text-zinc-100">{template.name}</div>
+                      <div className="mt-1 text-[10px] font-medium text-zinc-500 uppercase tracking-[0.08em]">
+                        {template.family}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 border border-white/10 bg-[var(--bg-base)] p-3">
+              <Field
+                label="Agent task name"
+                value={draft.name}
+                onChange={(name) => setDraft((current) => ({ ...current, name }))}
+              />
+              <Field
+                label="Procurement brief"
+                value={draft.sourceLocation}
+                onChange={(sourceLocation) => setDraft((current) => ({ ...current, sourceLocation }))}
+              />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Target coverage"
+                  value={draft.coverage}
+                  onChange={(coverage) => setDraft((current) => ({ ...current, coverage }))}
+                />
+                <Field
+                  label="Expected cadence"
+                  value={draft.cadence}
+                  onChange={(cadence) => setDraft((current) => ({ ...current, cadence }))}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Business owner"
+                  value={draft.owner}
+                  onChange={(owner) => setDraft((current) => ({ ...current, owner }))}
+                />
+                <Field
+                  label="Adapter mode"
+                  value={draft.mode}
+                  onChange={(mode) => setDraft((current) => ({ ...current, mode }))}
+                />
+              </div>
+              <AuthConfigurator draft={draft} onChange={setDraft} />
+              <Field
+                label="Expected normalized fields"
+                value={draft.mapping}
+                onChange={(mapping) => setDraft((current) => ({ ...current, mapping }))}
+              />
+              <Field
+                label="Decision use"
+                value={draft.useCase}
+                onChange={(useCase) => setDraft((current) => ({ ...current, useCase }))}
+              />
+            </div>
+          </div>
+        </div>
+        <SheetFooter className="border-t border-violet-300/20 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+            <button
+              className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-white/10 px-3 text-[12px] font-medium text-zinc-300 hover:bg-white/[0.04] disabled:opacity-40"
+              type="button"
+              disabled={!agentSource}
+              onClick={onRemove}
+            >
+              Remove procurement task
+            </button>
+            <button
+              className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-violet-300/30 bg-violet-300/10 px-3 text-[12px] font-medium text-violet-100 hover:bg-violet-300/15"
+              type="button"
+              onClick={() => onSave({ ...draft, templateId, auth: authSummary(draft) })}
+            >
+              <Bot className="size-3.5" />
+              Add agent task
             </button>
           </div>
         </SheetFooter>
@@ -823,24 +1045,19 @@ function sourceDraft(source: AddedSource | null, template: SourceTemplate): Adde
   };
 }
 
-function sourceForFlow(source: AddedSource | null, template: SourceTemplate, flow: SourceFlow): AddedSource {
-  if (flow === "manual") {
-    return sourceDraft(source?.procurementMode === "AI procurement agent" ? null : source, template);
-  }
-
-  const agentSource = source?.procurementMode === "AI procurement agent" ? source : null;
-
+function sourceForAgent(source: AddedSource | null, template: SourceTemplate): AddedSource {
   return sourceDraft(
     {
-      ...(agentSource ?? sourceDraft(null, template)),
+      ...(source ?? sourceDraft(null, template)),
       templateId: template.id,
+      name: source?.name ?? `Procurement scout: ${template.name}`,
       procurementMode: "AI procurement agent",
       sourceLocation: aiSourcePrompt(template),
       auth: "Agent to identify auth requirements, ToS constraints, and approval steps",
       authMethod: "Manual approval",
       credentialStatus: "Pending approval",
       credentialRef: "agent://procurement/output-pending",
-      accessScope: "agent to discover required permissions",
+      accessScope: "discover:source-metadata draft:adapter-plan require:human-approval",
       testState: "Agent has not run",
       mode: "Agent-discovered adapter",
     },
