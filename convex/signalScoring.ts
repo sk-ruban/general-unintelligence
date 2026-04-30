@@ -109,6 +109,28 @@ function scoreFromRange(value: number, min: number, max: number) {
   return clamp((value - min) / (max - min));
 }
 
+function solarProxyForMtu(mtu: number) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const daylight = Math.sin(((hour - 6) / 14) * Math.PI);
+  return round(clamp(daylight * 0.78 + 0.08));
+}
+
+function windProxyForMtu(mtu: number, priceJumpStress: number) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const overnightLift = hour < 7 || hour >= 21 ? 0.16 : 0;
+  const afternoonMix = Math.sin(((hour + 2) / 24) * Math.PI * 2) * 0.12;
+  return round(clamp(0.34 + overnightLift + afternoonMix + priceJumpStress * 0.18));
+}
+
+function demandStressProxyForMtu(mtu: number, pricePosition: number, solarAvailabilityScore: number) {
+  const hour = ((mtu - 1) * 15) / 60;
+  const eveningPeak = Math.exp(-((hour - 20) ** 2) / 10);
+  const morningRamp = Math.exp(-((hour - 8) ** 2) / 14) * 0.35;
+  return round(
+    clamp(0.18 + eveningPeak * 0.42 + morningRamp + pricePosition * 0.24 - solarAvailabilityScore * 0.18),
+  );
+}
+
 function localMinute(timestamp: string) {
   return timestamp.slice(0, 16);
 }
@@ -257,9 +279,13 @@ export function buildBatterySignals(args: {
     const volumeDepthScore =
       volume !== null && maxVolume !== null && maxVolume > 0 ? clamp(volume / maxVolume) : null;
     const weather = weatherForTimestamp(context.weatherByLocalMinute, point.timestamp);
-    const solarAvailabilityScore = numberValue(weather?.solarAvailabilityScore);
-    const windGenerationProxy = numberValue(weather?.windGenerationProxy);
-    const weatherDemandStress = numberValue(weather?.weatherDemandStress);
+    const observedSolarAvailabilityScore = numberValue(weather?.solarAvailabilityScore);
+    const solarAvailabilityScore = observedSolarAvailabilityScore ?? solarProxyForMtu(point.mtu);
+    const windGenerationProxy =
+      numberValue(weather?.windGenerationProxy) ?? windProxyForMtu(point.mtu, priceJumpStress);
+    const weatherDemandStress =
+      numberValue(weather?.weatherDemandStress) ??
+      demandStressProxyForMtu(point.mtu, pricePosition, solarAvailabilityScore);
     const renewableSurplus = average([solarAvailabilityScore, windGenerationProxy]);
     const marketFragility = clamp(
       0.5 * priceJumpStress +
@@ -302,7 +328,7 @@ export function buildBatterySignals(args: {
     const observedInputs = [
       "price",
       "volume",
-      solarAvailabilityScore === null ? null : "weather",
+      weather === undefined ? null : "weather",
       stress === null ? null : "fuelCarbon",
     ].filter(Boolean).length;
     const confidence = clamp(

@@ -124,7 +124,10 @@ export function createConvexHttpMarketDataClient(
   }
 }
 
-export function createConvexHttpCurveDataClient(siteUrl: string, fallback: FallbackCurveDataApi): CurveDataApi {
+export function createConvexHttpCurveDataClient(
+  siteUrl: string,
+  fallback: FallbackCurveDataApi,
+): CurveDataApi {
   const baseUrl = siteUrl.replace(/\/+$/, "");
 
   return {
@@ -133,9 +136,17 @@ export function createConvexHttpCurveDataClient(siteUrl: string, fallback: Fallb
     },
     async getAvailableCurveDays() {
       try {
-        const catalog = await fetchConvexJson<ConvexCatalog>(baseUrl, "/market/dam/catalog");
-        const days = marketDaysFromCoverage(catalog.coverage);
-        if (days && days.length > 0) {
+        const curves = await fetchConvexJson<{ rows?: unknown[] }>(baseUrl, "/market/dam/curves", {
+          limit: "20000",
+        });
+        const days = uniqueSorted(
+          (curves.rows ?? [])
+            .map((row) =>
+              typeof row === "object" && row ? (row as { marketDate?: unknown }).marketDate : null,
+            )
+            .filter(isString),
+        );
+        if (days.length > 0) {
           return days;
         }
       } catch {
@@ -165,13 +176,17 @@ export function createConvexHttpCurveDataClient(siteUrl: string, fallback: Fallb
         fetchConvexJson<ConvexCatalog>(baseUrl, "/market/dam/catalog"),
         fetchConvexJson<ConvexDashboard>(baseUrl, "/market/dam/dashboard"),
       ]);
+      const fallbackHealth = await fallback.getCurveHealth();
+      const curveRows = Array.isArray(dashboard.curveFragility) ? dashboard.curveFragility.length : 0;
       return {
         mode: "convex-http",
         priceRows: rowCount(catalog.coverage) || dashboard.priceSeries?.length || 0,
-        curveRows: Array.isArray(dashboard.curveFragility) ? dashboard.curveFragility.length : 0,
-        firstMarketDate: catalog.coverage?.firstDate ?? dashboard.range?.from ?? null,
-        lastMarketDate: catalog.coverage?.lastDate ?? dashboard.range?.to ?? null,
-        generatedAtUtc: null,
+        curveRows: curveRows || fallbackHealth.curveRows,
+        firstMarketDate:
+          fallbackHealth.firstMarketDate ?? catalog.coverage?.firstDate ?? dashboard.range?.from ?? null,
+        lastMarketDate:
+          fallbackHealth.lastMarketDate ?? catalog.coverage?.lastDate ?? dashboard.range?.to ?? null,
+        generatedAtUtc: fallbackHealth.generatedAtUtc,
       };
     } catch {
       return await fallback.getCurveHealth();
