@@ -1,3 +1,4 @@
+import type { BatteryTwinTemplateId, OptimizerBatteryConstraints } from "@/lib/battery-twin";
 import type { SystemTwinSpec } from "@/lib/contracts";
 import type { BatteryTwinConfig } from "@/lib/types";
 
@@ -62,6 +63,21 @@ export const batteryArchetypes = {
 
 export type BatteryArchetypeSlug = keyof typeof batteryArchetypes;
 
+export function batteryArchetypeSlugForTemplate(
+  templateId: BatteryTwinTemplateId,
+): BatteryArchetypeSlug | null {
+  const slug = templateId.replaceAll("-", "_");
+  return slug in batteryArchetypes ? (slug as BatteryArchetypeSlug) : null;
+}
+
+export function twinConfigForTemplate(
+  templateId: BatteryTwinTemplateId,
+  fallback: BatteryTwinConfig,
+): BatteryTwinConfig {
+  const slug = batteryArchetypeSlugForTemplate(templateId);
+  return slug ? twinConfigFromArchetype(batteryArchetypes[slug]) : fallback;
+}
+
 export function twinConfigFromArchetype(archetype: SystemTwinSpec): BatteryTwinConfig {
   return {
     capacityMwh: archetype.contracted_energy_mwh,
@@ -72,5 +88,29 @@ export function twinConfigFromArchetype(archetype: SystemTwinSpec): BatteryTwinC
     maxSocMwh: archetype.contracted_energy_mwh * (archetype.soc_max_pct / 100),
     initialSocMwh: archetype.contracted_energy_mwh * 0.5,
     degradationCostEurPerMwh: 4,
+  };
+}
+
+export function optimizerConstraintsForTemplate(
+  templateId: BatteryTwinTemplateId,
+  fallback: OptimizerBatteryConstraints,
+): OptimizerBatteryConstraints {
+  const slug = batteryArchetypeSlugForTemplate(templateId);
+  if (!slug) {
+    return fallback;
+  }
+
+  const archetype = batteryArchetypes[slug];
+  const config = twinConfigFromArchetype(archetype);
+  const efficiency = Math.sqrt(config.roundTripEfficiency);
+
+  return {
+    ...config,
+    availabilityDerate: 1,
+    chargeEfficiency: Number(efficiency.toFixed(5)),
+    dischargeEfficiency: Number(efficiency.toFixed(5)),
+    maxCyclesPerDay: archetype.max_cycles_per_day,
+    reserveSocMwh: archetype.contracted_energy_mwh * (archetype.reserve_soc_pct / 100),
+    terminalSocPolicy: "equal-start",
   };
 }

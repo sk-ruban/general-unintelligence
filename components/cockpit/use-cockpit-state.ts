@@ -7,6 +7,7 @@ import type {
   ManualOverrideCommand,
 } from "@/components/cockpit/control-room";
 import type { View } from "@/components/cockpit/types";
+import { optimizerConstraintsForTemplate, twinConfigForTemplate } from "@/lib/battery-archetypes";
 import { buildDispatchSchedule, summarizeDispatch } from "@/lib/battery-dispatch";
 import {
   type BatteryTwinParameters,
@@ -123,7 +124,14 @@ export function useCockpitState() {
     () => buildBatteryTwin(selectedTwinId, twinOverrides),
     [selectedTwinId, twinOverrides],
   );
-  const twin = activeBatteryTwin.optimizerConfig;
+  const twin = useMemo(
+    () => twinConfigForTemplate(selectedTwinId, activeBatteryTwin.optimizerConfig),
+    [selectedTwinId, activeBatteryTwin.optimizerConfig],
+  );
+  const optimizerConstraints = useMemo(
+    () => optimizerConstraintsForTemplate(selectedTwinId, activeBatteryTwin.optimizerConstraints),
+    [selectedTwinId, activeBatteryTwin.optimizerConstraints],
+  );
 
   useEffect(() => {
     try {
@@ -365,8 +373,8 @@ export function useCockpitState() {
     [dispatch, prices, curves, curveStats, signals, twin, health],
   );
   const feasibilityChecks = useMemo(
-    () => evaluateDispatchFeasibility(dispatch, activeBatteryTwin.optimizerConstraints),
-    [dispatch, activeBatteryTwin],
+    () => evaluateDispatchFeasibility(dispatch, optimizerConstraints),
+    [dispatch, optimizerConstraints],
   );
   const scenarioComparisons = useMemo(() => buildScenarioComparisons(prices, twin), [prices, twin]);
   const curveDaySet = useMemo(() => new Set(curveDays), [curveDays]);

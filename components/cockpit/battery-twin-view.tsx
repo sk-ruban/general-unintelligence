@@ -1,3 +1,4 @@
+import { Plus, Zap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Panel, PanelHeader } from "@/components/ui/panel";
 import type { summarizeDispatch } from "@/lib/battery-dispatch";
@@ -11,16 +12,20 @@ import {
 } from "@/lib/battery-twin";
 import { formatEuro, formatMw, formatMwh, formatPercent } from "@/lib/format";
 import type { DispatchPoint } from "@/lib/types";
-import { DetailMetric, Tag, type Tone } from "./shared";
+import { DetailMetric, PageActionButton, PageIntro, Tag, type Tone } from "./shared";
 
 function FeasibilityChecklist({ checks }: { checks: ReturnType<typeof evaluateDispatchFeasibility> }) {
   return (
     <Panel>
       <PanelHeader
-        title="Twin Feasibility Proof"
-        kicker="Derived from dispatch and selected battery constraints"
+        title="Dispatch Feasibility Checks"
+        kicker="Why this is here: verifies the schedule can physically run on the selected battery before it is trusted."
         right={<Tag tone={checks.every((check) => check.status === "pass") ? "green" : "amber"}>Twin</Tag>}
       />
+      <div className="border-white/10 border-b px-3 py-2 text-[11px] leading-4 text-zinc-500">
+        These checks compare the current dispatch plan against SoC, power, cycle, reserve, and auxiliary-load
+        limits. They keep the optimizer from showing a profitable schedule that violates the asset template.
+      </div>
       <div className="grid gap-2 p-3 md:grid-cols-2">
         {checks.slice(0, 8).map((check) => (
           <div key={check.id} className="border border-white/10 bg-black/20 p-3">
@@ -60,13 +65,30 @@ export function BatteryTwin({
   const feasibilityChecks = evaluateDispatchFeasibility(dispatch, optimizerConstraints);
   return (
     <div className="grid gap-4">
+      <PageIntro
+        kicker="Battery Twin"
+        title="Asset Constraint Builder"
+        description="Defines the selected battery template, SoC corridor, power limits, and open supplier specs that constrain every optimization result."
+        actions={
+          <>
+            <PageActionButton onClick={() => onTemplateChange("custom")}>
+              <Plus className="size-3.5" />
+              Add template
+            </PageActionButton>
+            <Tag tone="cyan">
+              <Zap className="mr-1 size-3" />
+              {formatMw(optimizerConstraints.maxDischargeMw)}
+            </Tag>
+          </>
+        }
+      />
       <Panel>
         <PanelHeader title="Battery Twin Builder" kicker="Operator asset templates" />
         <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-5">
           {BATTERY_TWIN_TEMPLATES.map((template) => (
             <button
               key={template.profile.id}
-              className={`border p-3 text-left transition ${
+              className={`border p-3 text-left ${
                 selectedTwinId === template.profile.id
                   ? "border-cyan-300/60 bg-cyan-300/[0.08]"
                   : "border-white/10 bg-black/20 hover:bg-white/[0.04]"
@@ -166,7 +188,7 @@ export function BatteryTwin({
                 {(["conservative", "balanced", "aggressive"] as const).map((policy) => (
                   <button
                     key={policy}
-                    className="rounded-sm border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-zinc-400 uppercase transition hover:text-zinc-100"
+                    className="rounded-sm border border-white/10 bg-black/20 px-2 py-1 text-[10px] text-zinc-400 uppercase hover:text-zinc-100"
                     type="button"
                     onClick={() => onApplyPolicy(policy)}
                   >
@@ -295,7 +317,15 @@ export function BatteryTwin({
           </div>
         </Panel>
         <Panel>
-          <PanelHeader title="Missing Specs" kicker="Customer/supplier data that would improve the twin" />
+          <PanelHeader
+            title="Open Asset Data Requests"
+            kicker="Why this is here: these are the supplier or customer values still estimated by the twin."
+          />
+          <div className="border-white/10 border-b px-3 py-2 text-[11px] leading-4 text-zinc-500">
+            The model can run without these fields, but each missing value lowers confidence or forces a
+            fallback assumption. Filling them from datasheets, warranties, or operator measurements tightens
+            the dispatch limits used by the optimizer.
+          </div>
           <div className="grid gap-2 p-3">
             {missingSpecs.slice(0, 7).map((spec) => (
               <div key={spec.id} className="border border-white/10 bg-black/20 p-3">

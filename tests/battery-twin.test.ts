@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { optimizerConstraintsForTemplate, twinConfigForTemplate } from "@/lib/battery-archetypes";
 import { buildDispatchSchedule } from "@/lib/battery-dispatch";
 import {
   BATTERY_TWIN_TEMPLATES,
@@ -121,6 +122,28 @@ describe("battery twin optimizer mapping", () => {
 
     expect(constraints.chargeEfficiency).toBeCloseTo(Math.sqrt(0.89), 5);
     expect(constraints.dischargeEfficiency).toBeCloseTo(Math.sqrt(0.89), 5);
+  });
+
+  it("keeps optimizer-facing data aligned with the cached archetype artifacts", () => {
+    const richTwin = buildBatteryTwin("ppc-amyntaio-trina");
+    const optimizerTwin = twinConfigForTemplate("ppc-amyntaio-trina", richTwin.optimizerConfig);
+    const optimizerConstraints = optimizerConstraintsForTemplate(
+      "ppc-amyntaio-trina",
+      richTwin.optimizerConstraints,
+    );
+
+    expect(richTwin.optimizerConfig).toMatchObject({
+      capacityMwh: 200,
+      maxDischargeMw: 46.5,
+    });
+    expect(optimizerTwin).toMatchObject({
+      capacityMwh: 196,
+      maxChargeMw: 98,
+      maxDischargeMw: 98,
+      roundTripEfficiency: 0.88,
+    });
+    expect(optimizerConstraints.maxCyclesPerDay).toBe(1.5);
+    expect(optimizerConstraints.reserveSocMwh).toBeCloseTo(9.8);
   });
 });
 
