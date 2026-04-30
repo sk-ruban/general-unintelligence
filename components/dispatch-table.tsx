@@ -7,9 +7,9 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { DateTime } from "luxon";
 import { useMemo, useState } from "react";
 import { formatEuro, formatEurPerMwh, formatMw, formatMwh } from "@/lib/format";
+import { formatMarketIntervalWindow } from "@/lib/market-time";
 import type { DispatchPoint } from "@/lib/types";
 
 export function DispatchTable({ data }: { data: DispatchPoint[] }) {
@@ -18,19 +18,10 @@ export function DispatchTable({ data }: { data: DispatchPoint[] }) {
     () => [
       {
         id: "mtu",
-        header: "MTU",
+        header: "Window",
         accessorFn: (row) => row.interval.mtu,
-        cell: (info) => <span className="mono">{String(info.getValue()).padStart(2, "0")}</span>,
-      },
-      {
-        header: "Time",
-        accessorFn: (row) => row.interval.timestampUtc,
         cell: (info) => (
-          <span className="mono text-zinc-300">
-            {DateTime.fromISO(String(info.getValue()), { zone: "utc" })
-              .setZone("Europe/Athens")
-              .toFormat("HH:mm")}
-          </span>
+          <span className="mono">{formatMarketIntervalWindow(info.row.original.interval)}</span>
         ),
       },
       {
@@ -100,7 +91,7 @@ export function DispatchTable({ data }: { data: DispatchPoint[] }) {
           {table.getRowModel().rows.map((row) => (
             <tr key={row.id} className="border-white/5 border-b hover:bg-white/[0.035]">
               {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="h-7 truncate px-2 text-zinc-200">
+                <td key={cell.id} className="h-7 px-2 text-zinc-200">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

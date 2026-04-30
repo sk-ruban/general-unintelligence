@@ -22,6 +22,16 @@ export function marketIntervalFromLocal(marketDate: string, mtu: number): Market
   };
 }
 
+export function formatMarketIntervalWindow(interval: MarketInterval) {
+  const start = DateTime.fromISO(interval.timestampUtc, { zone: "utc" }).setZone(MARKET_TIME_ZONE);
+  const end = start.plus({ minutes: MTU_MINUTES });
+  return `${start.toFormat("HH:mm")}-${end.toFormat("HH:mm")}`;
+}
+
+export function formatMtuWindow(marketDate: string, mtu: number) {
+  return formatMarketIntervalWindow(marketIntervalFromLocal(marketDate, mtu));
+}
+
 export function generateMarketIntervals(marketDate: string): MarketInterval[] {
   const start = DateTime.fromISO(marketDate, { zone: MARKET_TIME_ZONE }).startOf("day");
   const end = start.plus({ days: 1 });
