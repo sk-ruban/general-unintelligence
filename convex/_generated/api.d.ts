@@ -17,6 +17,7 @@ import type * as httpShared from "../httpShared.js";
 import type * as iceTtf from "../iceTtf.js";
 import type * as maintenance from "../maintenance.js";
 import type * as openMeteo from "../openMeteo.js";
+import type * as signalScoring from "../signalScoring.js";
 import type * as userState from "../userState.js";
 
 import type {
@@ -35,6 +36,7 @@ declare const fullApi: ApiFromModules<{
   iceTtf: typeof iceTtf;
   maintenance: typeof maintenance;
   openMeteo: typeof openMeteo;
+  signalScoring: typeof signalScoring;
   userState: typeof userState;
 }>;
 

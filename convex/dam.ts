@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { coverageFromFiles, dashboardFromSummaries, type PricePoint, summarizePrices } from "./damSummary";
+import {
+  buildBatterySignals,
+  type SignalContext,
+  type SignalPricePoint,
+  type SignalWeatherPoint,
+} from "./signalScoring";
 
 const SOURCE = "henex-dam";
 const TIMEZONE = "Europe/Athens";
@@ -12,6 +18,8 @@ const MAX_PRICE_DAYS = 45;
 const MAX_DAILY_PRICE_DAYS = 2_000;
 const DEFAULT_DASHBOARD_DAYS = 7;
 const MAX_DASHBOARD_DAYS = 14;
+const DEFAULT_SIGNAL_DAYS = 1;
+const MAX_SIGNAL_DAYS = 14;
 const PRICE_RESOLUTIONS = v.union(v.literal("interval"), v.literal("daily-average"));
 
 type DateRange = {
@@ -68,10 +76,16 @@ async function selectDateRange(
   options: { defaultDays: number; maxDays: number },
 ): Promise<DateRange> {
   const selectedTo = requireDateKey(
-    args.date ?? args.to ?? (await latestDamMarketDate(ctx)) ?? addDays(new Date().toISOString().slice(0, 10), 0),
+    args.date ??
+      args.to ??
+      (await latestDamMarketDate(ctx)) ??
+      addDays(new Date().toISOString().slice(0, 10), 0),
     "to",
   );
-  const selectedFrom = requireDateKey(args.date ?? args.from ?? addDays(selectedTo, -(options.defaultDays - 1)), "from");
+  const selectedFrom = requireDateKey(
+    args.date ?? args.from ?? addDays(selectedTo, -(options.defaultDays - 1)),
+    "from",
+  );
   return {
     from: selectedFrom,
     to: selectedTo,
@@ -220,7 +234,9 @@ async function priceIntervalsForDates(
             .query("damPriceIntervals")
             .withIndex("by_date", (q: any) => q.eq("marketDate", marketDate))
             .take(Math.min(remaining, 1_000));
-    rows.push(...fetched.filter((row: any) => args.biddingZone === undefined || row.biddingZone === args.biddingZone));
+    rows.push(
+      ...fetched.filter((row: any) => args.biddingZone === undefined || row.biddingZone === args.biddingZone),
+    );
   }
   return rows.slice(0, limit);
 }
@@ -244,6 +260,126 @@ async function summariesForDates(ctx: { db: any }, dates: string[]) {
   return summaries;
 }
 
+async function latestWeatherContext(ctx: { db: any }): Promise<{
+  weatherByLocalMinute: Map<string, SignalWeatherPoint>;
+  freshness: Record<string, unknown> | null;
+}> {
+  const fetchDoc = await ctx.db
+    .query("weatherFetches")
+    .withIndex("by_source_fetchedAt", (q: any) => q.eq("source", "open-meteo"))
+    .order("desc")
+    .first();
+  if (!fetchDoc) {
+    return { weatherByLocalMinute: new Map<string, SignalWeatherPoint>(), freshness: null };
+  }
+  const national = await ctx.db
+    .query("weatherNationalSeries")
+    .withIndex("by_fetch", (q: any) => q.eq("fetchId", fetchDoc._id))
+    .first();
+  const rows = Array.isArray(national?.rows) ? national.rows : [];
+  return {
+    weatherByLocalMinute: new Map<string, SignalWeatherPoint>(
+      rows.map((row: any) => [
+        String(row.timestamp).slice(0, 16),
+        {
+          timestamp: row.timestamp,
+          solarAvailabilityScore: row.solarAvailabilityScore,
+          windGenerationProxy: row.windGenerationProxy,
+          weatherDemandStress: row.weatherDemandStress,
+        },
+      ]),
+    ),
+    freshness: {
+      fetchId: fetchDoc._id,
+      fetchedAtUtc: fetchDoc.fetchedAtUtc,
+      firstTimestamp: fetchDoc.firstTimestamp,
+      lastTimestamp: fetchDoc.lastTimestamp,
+      resolution: fetchDoc.resolution,
+      status: fetchDoc.health?.status,
+    },
+  };
+}
+
+async function latestTtfContext(ctx: { db: any }) {
+  const fetchDoc = await ctx.db
+    .query("ttfFetches")
+    .withIndex("by_source_fetchedAt", (q: any) => q.eq("source", "ice-delayed-product-guide"))
+    .order("desc")
+    .first();
+  return {
+    fuelCostEurPerMwhElectric: fetchDoc?.fuelCostEurPerMwhElectric,
+    freshness: fetchDoc
+      ? {
+          fetchId: fetchDoc._id,
+          fetchedAtUtc: fetchDoc.fetchedAtUtc,
+          selectedMarketStrip: fetchDoc.selectedMarketStrip,
+          status: fetchDoc.health?.status,
+        }
+      : null,
+  };
+}
+
+async function latestEexContext(ctx: { db: any }) {
+  const fetchDoc = await ctx.db
+    .query("eexFetches")
+    .withIndex("by_source_fetchedAt", (q: any) => q.eq("source", "eex-market-data-hub"))
+    .order("desc")
+    .first();
+  return {
+    euaPriceEurPerTonne: fetchDoc?.euaPriceEurPerTonne,
+    greekForwardPriceEurPerMwh: fetchDoc?.selectedGreekPowerPriceEurPerMwh,
+    freshness: fetchDoc
+      ? {
+          fetchId: fetchDoc._id,
+          fetchedAtUtc: fetchDoc.fetchedAtUtc,
+          selectedGreekPowerShortCode: fetchDoc.selectedGreekPowerShortCode,
+          selectedGreekPowerMaturity: fetchDoc.selectedGreekPowerMaturity,
+          status: fetchDoc.health?.status,
+        }
+      : null,
+  };
+}
+
+function batteryContext(args: {
+  initialSocMwh?: number;
+  minSocMwh?: number;
+  maxSocMwh?: number;
+}): SignalContext["battery"] {
+  return {
+    initialSocMwh: args.initialSocMwh,
+    minSocMwh: args.minSocMwh,
+    maxSocMwh: args.maxSocMwh,
+  };
+}
+
+async function signalPriceSeries(
+  ctx: { db: any },
+  dates: string[],
+  limit: number,
+): Promise<SignalPricePoint[]> {
+  const summaries = await summariesForDates(ctx, dates);
+  if (summaries) {
+    return summaries
+      .flatMap((summary) => summary.priceSeries ?? [])
+      .filter((point: any) => typeof point.mcpEurPerMwh === "number")
+      .slice(0, limit);
+  }
+  const rows = await priceIntervalsForDates(ctx, dates, { limit });
+  return rows
+    .map(compactPriceInterval)
+    .filter((point: any) => typeof point.mcpEurPerMwh === "number")
+    .map((point: any) => ({
+      marketDate: point.marketDate,
+      timestamp: point.timestamp,
+      mtu: point.mtu,
+      mcpEurPerMwh: point.mcpEurPerMwh,
+      buyVolume: point.buyVolume,
+      sellVolume: point.sellVolume,
+      totalTrades: point.totalTrades,
+      sourceRowCount: point.sourceRowCount,
+    }));
+}
+
 export const getDamCatalog = query({
   args: {
     includeRecentFiles: v.optional(v.boolean()),
@@ -259,7 +395,14 @@ export const getDamCatalog = query({
       coverage,
       filesIndexed: files.length,
       recentFiles: args.includeRecentFiles ? files.slice(0, DEFAULT_FILE_LIMIT).map(compactFile) : undefined,
-      routes: ["/market/dam/catalog", "/market/dam/files", "/market/dam/prices", "/market/dam/dashboard"],
+      routes: [
+        "/market/dam/catalog",
+        "/market/dam/files",
+        "/market/dam/prices",
+        "/market/dam/dashboard",
+        "/market/dam/battery-signals",
+        "/signals/intervals",
+      ],
     };
   },
 });
@@ -356,7 +499,8 @@ export const getDamAggregatedCurves = query({
       count: 0,
       rows: [],
       summaryMode: "not-seeded",
-      caveat: "Raw aggregated curve rows are intentionally not stored in Convex. Seed derived curve metrics separately if needed.",
+      caveat:
+        "Raw aggregated curve rows are intentionally not stored in Convex. Seed derived curve metrics separately if needed.",
     };
   },
 });
@@ -368,7 +512,10 @@ export const getDamDashboard = query({
     to: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const range = await selectDateRange(ctx, args, { defaultDays: DEFAULT_DASHBOARD_DAYS, maxDays: MAX_DASHBOARD_DAYS });
+    const range = await selectDateRange(ctx, args, {
+      defaultDays: DEFAULT_DASHBOARD_DAYS,
+      maxDays: MAX_DASHBOARD_DAYS,
+    });
     const summaries = await summariesForDates(ctx, range.dates);
     if (summaries) {
       return dashboardFromSummaries(range, summaries, SOURCE, TIMEZONE);
@@ -401,5 +548,58 @@ export const getDamDashboard = query({
         "Asset-level Results rows and raw aggregate curves are kept in local files, not Convex.",
       ],
     };
+  },
+});
+
+export const getDamBatterySignals = query({
+  args: {
+    date: v.optional(v.string()),
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    initialSocMwh: v.optional(v.number()),
+    minSocMwh: v.optional(v.number()),
+    maxSocMwh: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const range = await selectDateRange(ctx, args, {
+      defaultDays: DEFAULT_SIGNAL_DAYS,
+      maxDays: MAX_SIGNAL_DAYS,
+    });
+    const limit = boundedInteger(args.limit, 96 * range.dates.length, 1, MAX_ROW_LIMIT);
+    const [priceSeries, weather, ttf, eex] = await Promise.all([
+      signalPriceSeries(ctx, range.dates, limit),
+      latestWeatherContext(ctx),
+      latestTtfContext(ctx),
+      latestEexContext(ctx),
+    ]);
+
+    return buildBatterySignals({
+      priceSeries,
+      range: { from: range.from, to: range.to },
+      source: "battery-signal-engine",
+      timezone: TIMEZONE,
+      context: {
+        weatherByLocalMinute: weather.weatherByLocalMinute,
+        fuelCostEurPerMwhElectric: ttf.fuelCostEurPerMwhElectric,
+        euaPriceEurPerTonne: eex.euaPriceEurPerTonne,
+        greekForwardPriceEurPerMwh: eex.greekForwardPriceEurPerMwh,
+        battery: batteryContext(args),
+      },
+      dataFreshness: {
+        dam: {
+          range: { from: range.from, to: range.to },
+          intervalCount: priceSeries.length,
+          mode: "convex-dam",
+        },
+        weather: weather.freshness,
+        ttf: ttf.freshness,
+        eex: eex.freshness,
+        missing: {
+          iptoAdmieSystemFundamentals: true,
+          entsoeCrossBorderContext: true,
+        },
+      },
+    });
   },
 });

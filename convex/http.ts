@@ -190,6 +190,43 @@ http.route({
   handler: httpAction(async () => optionsResponse()),
 });
 
+async function damBatterySignalsResponse(ctx: any, request: Request) {
+  const searchParams = new URL(request.url).searchParams;
+  return jsonResponse(
+    await ctx.runQuery(api.dam.getDamBatterySignals, {
+      ...damDateRangeFromSearch(searchParams),
+      limit: numberParam(searchParams, "limit"),
+      initialSocMwh: numberParam(searchParams, "initialSocMwh"),
+      minSocMwh: numberParam(searchParams, "minSocMwh"),
+      maxSocMwh: numberParam(searchParams, "maxSocMwh"),
+    }),
+  );
+}
+
+http.route({
+  path: "/market/dam/battery-signals",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => damBatterySignalsResponse(ctx, request)),
+});
+
+http.route({
+  path: "/market/dam/battery-signals",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
+http.route({
+  path: "/signals/intervals",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => damBatterySignalsResponse(ctx, request)),
+});
+
+http.route({
+  path: "/signals/intervals",
+  method: "OPTIONS",
+  handler: httpAction(async () => optionsResponse()),
+});
+
 http.route({
   path: "/weather/open-meteo/latest",
   method: "GET",

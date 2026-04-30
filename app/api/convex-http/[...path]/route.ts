@@ -1,4 +1,10 @@
-const ALLOWED_PREFIXES = ["/market/dam/", "/weather/open-meteo/", "/fuel/ttf/", "/market/eex/"] as const;
+const ALLOWED_PREFIXES = [
+  "/market/dam/",
+  "/weather/open-meteo/",
+  "/fuel/ttf/",
+  "/market/eex/",
+  "/signals/",
+] as const;
 
 export const dynamic = "force-dynamic";
 
