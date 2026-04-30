@@ -4,27 +4,29 @@ Prometheus is a hackathon prototype for battery dispatch optimization in the Gre
 
 The central design assumption is realistic data scarcity: we have rich market history, but limited asset-specific battery telemetry. The product therefore separates observed market data, forecast fundamentals, contextual signals, and confidence-rated battery-twin assumptions.
 
+## Demo Video
+
+[![Dispatch Plan demo](https://img.youtube.com/vi/BHm14HQquAE/hqdefault.jpg)](https://youtu.be/BHm14HQquAE)
+
+Watch on YouTube: [Dispatch Plan demo](https://youtu.be/BHm14HQquAE)
+
+Local MP4 copy for GitHub/repo viewers: [docs/media/dispatch-plan-demo.mp4](docs/media/dispatch-plan-demo.mp4)
+
+<video src="docs/media/dispatch-plan-demo.mp4" controls width="100%"></video>
+
 ## Demo Screenshots
+
+### Control Room
+
+![Control Room](docs/screenshots/control-room.png)
+
+### Grid Flow
+
+![Grid Flow](docs/screenshots/grid-flow.png)
 
 ### Dispatch Plan
 
 ![Dispatch Plan](docs/screenshots/dispatch-plan.png)
-
-### Model Lab
-
-![Model Lab](docs/screenshots/model-lab.png)
-
-### Scenario Planner
-
-![Scenario Planner](docs/screenshots/scenario-planner.png)
-
-### Data Sources
-
-![Data Sources](docs/screenshots/data-sources.png)
-
-### Operator Copilot
-
-![Operator Copilot](docs/screenshots/operator-copilot.png)
 
 ## What It Does
 
